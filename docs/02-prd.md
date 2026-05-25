@@ -68,7 +68,9 @@ Primary goals:
 
 ### FR1. Organization And Store Access
 
-Users belong to an organization through membership.
+Each user belongs to exactly one organization in V1.
+
+Users belong to that organization through a membership record. The membership record stores the user's organization-level role and status.
 
 Stores belong to one organization.
 
@@ -76,6 +78,7 @@ Managers and staff can only operate assigned stores. Owners can operate all stor
 
 Acceptance criteria:
 
+- A user can have only one organization membership in V1.
 - A user cannot access a store from another organization.
 - A staff user cannot create a sale for an unassigned store.
 - A manager can view orders and inventory only for assigned stores.
@@ -83,11 +86,11 @@ Acceptance criteria:
 
 Why:
 
-Multi-store SaaS bugs often come from weak tenant and store boundaries. The first version must make access control explicit instead of relying on UI filtering.
+The target merchant is a small retailer where staff usually belong to one company. Keeping one organization per user reduces workspace-switching complexity while still forcing explicit tenant and store boundaries.
 
 Interview angle:
 
-"I modeled organization membership separately from store assignment so tenant-level role and store-level access could evolve independently."
+"I limited users to one organization in V1 because it matches the small-retail operating model. I still kept membership separate from user so role, status, and invitation metadata do not get mixed into the identity record."
 
 ### FR2. Product And SKU Catalog
 
