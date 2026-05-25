@@ -397,13 +397,14 @@ Key fields:
 - `eventType`
 - `payload`
 - `processedAt`
-- `processingStatus`: `PROCESSED`, `IGNORED_DUPLICATE`, `FAILED_REVIEW`
+- `processingStatus`: `PROCESSED`, `FAILED_REVIEW`
 - `createdAt`
 
 Important rules:
 
 - `(provider, providerEventId)` is unique.
 - A duplicate event must not repeat stock deduction.
+- A duplicate event does not create a second `PaymentEvent` row in V1. The application detects the existing provider event id and returns an ignored result.
 - Raw payload is stored for debugging and reconciliation.
 
 Why:
@@ -616,4 +617,3 @@ Owns append-only audit log creation.
 - "Inventory balance is a read model, while stock ledger is the traceable source of inventory changes."
 - "Payment event idempotency is represented as data through PaymentEvent, not only through an in-memory guard."
 - "Order item snapshots preserve financial history after SKU names or prices change."
-
