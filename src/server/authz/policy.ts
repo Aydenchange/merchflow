@@ -47,6 +47,18 @@ export function assertCanManageCatalog(context: AuthContext) {
   }
 }
 
+export function assertCanRecordRefund(context: AuthContext, storeId: string) {
+  assertActiveMembership(context);
+
+  if (context.role === "STAFF") {
+    throw new AuthorizationError("Role cannot record refund");
+  }
+
+  if (!canAccessStore(context, storeId)) {
+    throw new AuthorizationError("Store access denied");
+  }
+}
+
 export function getAccessibleStoreScope(context: AuthContext) {
   if (context.status !== "ACTIVE") {
     return { allStores: false, storeIds: [] };
