@@ -25,3 +25,24 @@ export class ArchivedOrderSkuError extends Error {
     this.name = "ArchivedOrderSkuError";
   }
 }
+
+export class OrderNotFoundError extends Error {
+  constructor(orderId: string) {
+    super(`Order ${orderId} was not found`);
+    this.name = "OrderNotFoundError";
+  }
+}
+
+export class InvalidOrderTransitionError extends Error {
+  constructor(input: {
+    orderId: string;
+    currentStatus: string;
+    expectedStatus: string;
+    targetStatus: string;
+  }) {
+    super(
+      `Order ${input.orderId} cannot transition from ${input.currentStatus} to ${input.targetStatus}; expected ${input.expectedStatus}`,
+    );
+    this.name = "InvalidOrderTransitionError";
+  }
+}
