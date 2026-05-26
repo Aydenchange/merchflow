@@ -18,3 +18,31 @@ export function canAccessStore(context: AuthContext, storeId: string) {
 
   return context.assignedStoreIds.includes(storeId);
 }
+
+export function assertCanCreateSale(context: AuthContext, storeId: string) {
+  assertActiveMembership(context);
+
+  if (!canAccessStore(context, storeId)) {
+    throw new AuthorizationError("Store access denied");
+  }
+}
+
+export function assertCanAdjustStock(context: AuthContext, storeId: string) {
+  assertActiveMembership(context);
+
+  if (context.role === "STAFF") {
+    throw new AuthorizationError("Role cannot adjust stock");
+  }
+
+  if (!canAccessStore(context, storeId)) {
+    throw new AuthorizationError("Store access denied");
+  }
+}
+
+export function assertCanManageCatalog(context: AuthContext) {
+  assertActiveMembership(context);
+
+  if (context.role === "STAFF") {
+    throw new AuthorizationError("Role cannot manage catalog");
+  }
+}

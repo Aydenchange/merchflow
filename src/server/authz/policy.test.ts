@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { AuthorizationError } from "./errors";
-import { assertActiveMembership, canAccessStore } from "./policy";
+import {
+  assertActiveMembership,
+  assertCanAdjustStock,
+  assertCanCreateSale,
+  assertCanManageCatalog,
+  canAccessStore,
+} from "./policy";
 import type { AuthContext } from "./types";
 
 function authContext(overrides: Partial<AuthContext> = {}): AuthContext {
@@ -66,5 +72,56 @@ describe("authorization policy", () => {
         "store_1",
       ),
     ).toBe(false);
+  });
+
+  it("allows staff to create sale in assigned store", () => {
+    expect(() =>
+      assertCanCreateSale(
+        authContext({ role: "STAFF", assignedStoreIds: ["store_1"] }),
+        "store_1",
+      ),
+    ).not.toThrow();
+  });
+
+  it("denies staff creating sale in unassigned store", () => {
+    expect(() =>
+      assertCanCreateSale(
+        authContext({ role: "STAFF", assignedStoreIds: ["store_1"] }),
+        "store_2",
+      ),
+    ).toThrow("Store access denied");
+  });
+
+  it("allows manager to adjust stock in assigned store", () => {
+    expect(() =>
+      assertCanAdjustStock(
+        authContext({ role: "MANAGER", assignedStoreIds: ["store_1"] }),
+        "store_1",
+      ),
+    ).not.toThrow();
+  });
+
+  it("denies staff manual stock adjustment", () => {
+    expect(() =>
+      assertCanAdjustStock(
+        authContext({ role: "STAFF", assignedStoreIds: ["store_1"] }),
+        "store_1",
+      ),
+    ).toThrow("Role cannot adjust stock");
+  });
+
+  it("allows owner and manager to manage catalog", () => {
+    expect(() =>
+      assertCanManageCatalog(authContext({ role: "OWNER" })),
+    ).not.toThrow();
+    expect(() =>
+      assertCanManageCatalog(authContext({ role: "MANAGER" })),
+    ).not.toThrow();
+  });
+
+  it("denies staff catalog management", () => {
+    expect(() =>
+      assertCanManageCatalog(authContext({ role: "STAFF" })),
+    ).toThrow("Role cannot manage catalog");
   });
 });
