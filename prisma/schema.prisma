@@ -1,0 +1,381 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrganizationRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  DISABLED
+}
+
+enum StoreStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CatalogStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  FULFILLED
+  CANCELLED
+  PAYMENT_FAILED
+  REFUNDED
+  PAYMENT_REQUIRES_REVIEW
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  REQUIRES_REVIEW
+}
+
+enum StockLedgerReason {
+  SALE
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  RETURN_RESTOCK
+}
+
+enum PaymentEventProcessingStatus {
+  PROCESSED
+  FAILED_REVIEW
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  membership OrganizationMembership?
+
+  @@map("users")
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  country   String
+  currency  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships       OrganizationMembership[]
+  stores            Store[]
+  storeAssignments  StoreAssignment[]
+  products          Product[]
+  skus              Sku[]
+  inventoryBalances InventoryBalance[]
+  stockLedgers      StockLedger[]
+  customers         Customer[]
+  orders            Order[]
+  orderItems        OrderItem[]
+  payments          Payment[]
+  paymentEvents     PaymentEvent[]
+  auditLogs         AuditLog[]
+
+  @@map("organizations")
+}
+
+model OrganizationMembership {
+  id             String           @id @default(uuid())
+  organizationId String
+  userId         String           @unique
+  role           OrganizationRole
+  status         MembershipStatus @default(ACTIVE)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization     Organization      @relation(fields: [organizationId], references: [id])
+  user             User              @relation(fields: [userId], references: [id])
+  storeAssignments StoreAssignment[]
+  createdOrders    Order[]           @relation("OrderCreator")
+  stockLedgers     StockLedger[]     @relation("StockLedgerActor")
+  auditLogs        AuditLog[]        @relation("AuditActor")
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([organizationId, role])
+  @@map("organization_memberships")
+}
+
+model Store {
+  id             String      @id @default(uuid())
+  organizationId String
+  name           String
+  code           String
+  address        String?
+  status         StoreStatus @default(ACTIVE)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization      Organization       @relation(fields: [organizationId], references: [id])
+  assignments       StoreAssignment[]
+  inventoryBalances InventoryBalance[]
+  stockLedgers      StockLedger[]
+  orders            Order[]
+  auditLogs         AuditLog[]
+
+  @@unique([organizationId, code])
+  @@unique([id, organizationId])
+  @@index([organizationId, status])
+  @@map("stores")
+}
+
+model StoreAssignment {
+  id             String   @id @default(uuid())
+  organizationId String
+  membershipId   String
+  storeId        String
+  createdAt      DateTime @default(now())
+
+  organization Organization           @relation(fields: [organizationId], references: [id])
+  membership   OrganizationMembership @relation(fields: [membershipId], references: [id])
+  store        Store                  @relation(fields: [storeId], references: [id])
+
+  @@unique([membershipId, storeId])
+  @@index([organizationId, membershipId])
+  @@index([organizationId, storeId])
+  @@map("store_assignments")
+}
+
+model Product {
+  id             String        @id @default(uuid())
+  organizationId String
+  name           String
+  description    String?
+  status         CatalogStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  skus         Sku[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, status])
+  @@map("products")
+}
+
+model Sku {
+  id             String        @id @default(uuid())
+  organizationId String
+  productId      String
+  name           String
+  barcode        String
+  priceAmount    Int
+  costAmount     Int?
+  status         CatalogStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization      Organization       @relation(fields: [organizationId], references: [id])
+  product           Product            @relation(fields: [productId], references: [id])
+  inventoryBalances InventoryBalance[]
+  stockLedgers      StockLedger[]
+  orderItems        OrderItem[]
+
+  @@unique([organizationId, barcode])
+  @@unique([id, organizationId])
+  @@index([organizationId, productId])
+  @@index([organizationId, status])
+  @@map("skus")
+}
+
+model InventoryBalance {
+  id                String   @id @default(uuid())
+  organizationId    String
+  storeId           String
+  skuId             String
+  quantityOnHand    Int      @default(0)
+  lowStockThreshold Int      @default(0)
+  updatedAt         DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  store        Store        @relation(fields: [storeId], references: [id])
+  sku          Sku          @relation(fields: [skuId], references: [id])
+
+  @@unique([organizationId, storeId, skuId])
+  @@index([organizationId, storeId])
+  @@index([organizationId, skuId])
+  @@index([organizationId, storeId, quantityOnHand])
+  @@map("inventory_balances")
+}
+
+model StockLedger {
+  id                String            @id @default(uuid())
+  organizationId    String
+  storeId           String
+  skuId             String
+  quantityDelta     Int
+  reason            StockLedgerReason
+  relatedOrderId    String?
+  actorMembershipId String?
+  note              String?
+  createdAt         DateTime          @default(now())
+
+  organization Organization            @relation(fields: [organizationId], references: [id])
+  store        Store                   @relation(fields: [storeId], references: [id])
+  sku          Sku                     @relation(fields: [skuId], references: [id])
+  relatedOrder Order?                  @relation("StockLedgerOrder", fields: [relatedOrderId], references: [id])
+  actor        OrganizationMembership? @relation("StockLedgerActor", fields: [actorMembershipId], references: [id])
+
+  @@index([organizationId, storeId, skuId, createdAt])
+  @@index([organizationId, relatedOrderId])
+  @@index([organizationId, actorMembershipId])
+  @@map("stock_ledgers")
+}
+
+model Customer {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String?
+  phone          String?
+  email          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  orders       Order[]
+
+  @@index([organizationId, phone])
+  @@index([organizationId, email])
+  @@map("customers")
+}
+
+model Order {
+  id                    String      @id @default(uuid())
+  organizationId        String
+  storeId               String
+  customerId            String?
+  createdByMembershipId String
+  status                OrderStatus @default(PENDING_PAYMENT)
+  subtotalAmount        Int
+  taxAmount             Int         @default(0)
+  totalAmount           Int
+  currency              String
+  paidAt                DateTime?
+  fulfilledAt           DateTime?
+  cancelledAt           DateTime?
+  refundedAt            DateTime?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id])
+  store        Store                  @relation(fields: [storeId], references: [id])
+  customer     Customer?              @relation(fields: [customerId], references: [id])
+  createdBy    OrganizationMembership @relation("OrderCreator", fields: [createdByMembershipId], references: [id])
+  items        OrderItem[]
+  payment      Payment?
+  stockLedgers StockLedger[]          @relation("StockLedgerOrder")
+
+  @@unique([id, organizationId])
+  @@index([organizationId, storeId, createdAt])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, createdByMembershipId, createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id              String @id @default(uuid())
+  organizationId  String
+  orderId         String
+  skuId           String
+  skuNameSnapshot String
+  barcodeSnapshot String
+  unitPriceAmount Int
+  quantity        Int
+  lineTotalAmount Int
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  order        Order        @relation(fields: [orderId], references: [id])
+  sku          Sku          @relation(fields: [skuId], references: [id])
+
+  @@index([organizationId, orderId])
+  @@index([organizationId, skuId])
+  @@map("order_items")
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  organizationId    String
+  orderId           String        @unique
+  provider          String
+  providerPaymentId String?
+  status            PaymentStatus @default(PENDING)
+  amount            Int
+  currency          String
+  metadata          Json?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  order        Order          @relation(fields: [orderId], references: [id])
+  events       PaymentEvent[]
+
+  @@unique([provider, providerPaymentId])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, provider, providerPaymentId])
+  @@map("payments")
+}
+
+model PaymentEvent {
+  id               String                       @id @default(uuid())
+  organizationId   String
+  paymentId        String
+  provider         String
+  providerEventId  String
+  eventType        String
+  payload          Json
+  processedAt      DateTime?
+  processingStatus PaymentEventProcessingStatus
+  createdAt        DateTime                     @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  payment      Payment      @relation(fields: [paymentId], references: [id])
+
+  @@unique([provider, providerEventId])
+  @@index([organizationId, paymentId, createdAt])
+  @@index([organizationId, processingStatus, createdAt])
+  @@map("payment_events")
+}
+
+model AuditLog {
+  id                String   @id @default(uuid())
+  organizationId    String
+  storeId           String?
+  actorMembershipId String?
+  action            String
+  entityType        String
+  entityId          String
+  metadata          Json?
+  createdAt         DateTime @default(now())
+
+  organization Organization            @relation(fields: [organizationId], references: [id])
+  store        Store?                  @relation(fields: [storeId], references: [id])
+  actor        OrganizationMembership? @relation("AuditActor", fields: [actorMembershipId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, storeId, createdAt])
+  @@index([organizationId, actorMembershipId, createdAt])
+  @@index([organizationId, entityType, entityId])
+  @@map("audit_logs")
+}

@@ -105,6 +105,7 @@ Expected:
 
 - Modify: `package.json`
 - Create: `.env.example`
+- Create: `prisma.config.ts`
 - Create: `vitest.config.ts`
 - Create: `src/test/setup.ts`
 - Create: `src/lib/db.ts`
@@ -114,13 +115,14 @@ Expected:
 Run:
 
 ```powershell
-npm install @prisma/client zod
-npm install -D prisma vitest @vitest/ui
+npm install @prisma/client zod dotenv @prisma/adapter-pg pg
+npm install -D prisma vitest @vitest/ui @types/pg
 ```
 
 Expected:
 
 - Prisma, Zod, and Vitest dependencies are added.
+- Prisma's PostgreSQL driver adapter and dotenv config support are added for Prisma 7.
 
 - [ ] **Step 2: Create environment example**
 
@@ -130,7 +132,26 @@ Create `.env.example`:
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/merchflow?schema=public"
 ```
 
-- [ ] **Step 3: Create Vitest config**
+- [ ] **Step 3: Create Prisma config**
+
+Create `prisma.config.ts`:
+
+```ts
+import "dotenv/config";
+import { defineConfig, env } from "prisma/config";
+
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  migrations: {
+    path: "prisma/migrations",
+  },
+  datasource: {
+    url: env("DATABASE_URL"),
+  },
+});
+```
+
+- [ ] **Step 4: Create Vitest config**
 
 Create `vitest.config.ts`:
 
@@ -146,7 +167,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 4: Create Vitest setup**
+- [ ] **Step 5: Create Vitest setup**
 
 Create `src/test/setup.ts`:
 
@@ -158,11 +179,12 @@ beforeEach(() => {
 });
 ```
 
-- [ ] **Step 5: Add lazy Prisma client getter**
+- [ ] **Step 6: Add lazy Prisma client getter**
 
 Create `src/lib/db.ts`:
 
 ```ts
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {
@@ -171,26 +193,33 @@ const globalForPrisma = globalThis as unknown as {
 
 export function getDb() {
   if (!globalForPrisma.prisma) {
-    globalForPrisma.prisma = new PrismaClient();
+    const connectionString = process.env.DATABASE_URL;
+
+    if (!connectionString) {
+      throw new Error("DATABASE_URL is required to initialize Prisma");
+    }
+
+    const adapter = new PrismaPg({ connectionString });
+    globalForPrisma.prisma = new PrismaClient({ adapter });
   }
 
   return globalForPrisma.prisma;
 }
 ```
 
-- [ ] **Step 6: Add test scripts**
+- [ ] **Step 7: Add test scripts**
 
 Modify `package.json` scripts to include:
 
 ```json
 {
-  "test": "vitest run",
+  "test": "vitest run --passWithNoTests",
   "test:watch": "vitest",
   "prisma:validate": "prisma validate"
 }
 ```
 
-- [ ] **Step 7: Verify tooling**
+- [ ] **Step 8: Verify tooling**
 
 Run:
 
@@ -201,15 +230,15 @@ npm run prisma:validate
 
 Expected:
 
-- `npm run test` passes with no tests or empty suite behavior accepted by Vitest.
+- `npm run test` passes with no tests.
 - `npm run prisma:validate` fails until `prisma/schema.prisma` exists. This expected failure proves the script is wired.
 
-- [ ] **Step 8: Commit tooling**
+- [ ] **Step 9: Commit tooling**
 
 Run:
 
 ```powershell
-git add package.json package-lock.json .env.example vitest.config.ts src/test/setup.ts src/lib/db.ts
+git add package.json package-lock.json .env.example prisma.config.ts vitest.config.ts src/test/setup.ts src/lib/db.ts
 git commit -m "chore: add prisma and vitest tooling"
 ```
 
@@ -438,6 +467,7 @@ Expected:
 **Files:**
 
 - Create: `prisma/schema.prisma`
+- Modify: `prisma.config.ts`
 
 - [ ] **Step 1: Create Prisma schema**
 
@@ -450,7 +480,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum OrganizationRole {
@@ -528,12 +557,14 @@ model Organization {
 
   memberships       OrganizationMembership[]
   stores            Store[]
+  storeAssignments  StoreAssignment[]
   products          Product[]
   skus              Sku[]
   inventoryBalances InventoryBalance[]
   stockLedgers      StockLedger[]
   customers         Customer[]
   orders            Order[]
+  orderItems        OrderItem[]
   payments          Payment[]
   paymentEvents     PaymentEvent[]
   auditLogs         AuditLog[]
