@@ -46,3 +46,15 @@ export function assertCanManageCatalog(context: AuthContext) {
     throw new AuthorizationError("Role cannot manage catalog");
   }
 }
+
+export function getAccessibleStoreScope(context: AuthContext) {
+  if (context.status !== "ACTIVE") {
+    return { allStores: false, storeIds: [] };
+  }
+
+  if (context.role === "OWNER") {
+    return { allStores: true, storeIds: [] };
+  }
+
+  return { allStores: false, storeIds: [...context.assignedStoreIds] };
+}

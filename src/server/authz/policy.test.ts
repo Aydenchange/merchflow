@@ -6,6 +6,7 @@ import {
   assertCanCreateSale,
   assertCanManageCatalog,
   canAccessStore,
+  getAccessibleStoreScope,
 } from "./policy";
 import type { AuthContext } from "./types";
 
@@ -123,5 +124,41 @@ describe("authorization policy", () => {
     expect(() =>
       assertCanManageCatalog(authContext({ role: "STAFF" })),
     ).toThrow("Role cannot manage catalog");
+  });
+
+  it("returns all-store scope for owner", () => {
+    expect(
+      getAccessibleStoreScope(
+        authContext({ role: "OWNER", assignedStoreIds: [] }),
+      ),
+    ).toEqual({
+      allStores: true,
+      storeIds: [],
+    });
+  });
+
+  it("returns assigned store scope for manager", () => {
+    expect(
+      getAccessibleStoreScope(
+        authContext({
+          role: "MANAGER",
+          assignedStoreIds: ["store_1", "store_2"],
+        }),
+      ),
+    ).toEqual({
+      allStores: false,
+      storeIds: ["store_1", "store_2"],
+    });
+  });
+
+  it("returns empty scope for inactive membership", () => {
+    expect(
+      getAccessibleStoreScope(
+        authContext({ status: "DISABLED", assignedStoreIds: ["store_1"] }),
+      ),
+    ).toEqual({
+      allStores: false,
+      storeIds: [],
+    });
   });
 });
