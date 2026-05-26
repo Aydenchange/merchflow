@@ -10,7 +10,12 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "prisma:validate": "prisma validate",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "prisma migrate dev",
+    "db:reset": "prisma migrate reset --force",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
