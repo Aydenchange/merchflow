@@ -146,7 +146,7 @@ Create `compose.yml`:
 ```yaml
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18.2
     container_name: merchflow-postgres
     restart: unless-stopped
     environment:
@@ -156,7 +156,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - merchflow-postgres-data:/var/lib/postgresql/data
+      - merchflow-postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d merchflow"]
       interval: 5s
@@ -391,4 +391,3 @@ Placeholder scan:
 Type consistency:
 
 - Database table and column names match the Prisma schema's mapped table names and default quoted column names.
-
