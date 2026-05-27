@@ -119,6 +119,52 @@ describe("order lifecycle service", () => {
     );
   });
 
+  it("trims cancellation reason before passing it to repository", async () => {
+    const calls: OrderLifecycleTransitionInput[] = [];
+
+    await cancelPendingOrder(
+      authContext(),
+      {
+        orderId: "order_1",
+        reason: " Customer changed mind ",
+      },
+      repository({
+        async cancelPendingOrder(input) {
+          calls.push(input);
+          return lifecycleResult({
+            cancelledAt: input.transitionedAt,
+          });
+        },
+      }),
+    );
+
+    expect(calls[0]).toMatchObject({
+      reason: "Customer changed mind",
+    });
+  });
+
+  it("omits blank cancellation reason", async () => {
+    const calls: OrderLifecycleTransitionInput[] = [];
+
+    await cancelPendingOrder(
+      authContext(),
+      {
+        orderId: "order_1",
+        reason: "   ",
+      },
+      repository({
+        async cancelPendingOrder(input) {
+          calls.push(input);
+          return lifecycleResult({
+            cancelledAt: input.transitionedAt,
+          });
+        },
+      }),
+    );
+
+    expect(calls[0]).not.toHaveProperty("reason");
+  });
+
   it("denies cancellation for unassigned store loaded from order", async () => {
     await expect(
       cancelPendingOrder(
@@ -240,5 +286,21 @@ describe("order lifecycle service", () => {
       status: "FULFILLED",
       storeId: "store_2",
     });
+  });
+
+  it("rejects disabled membership before lifecycle transition", async () => {
+    await expect(
+      fulfillPaidOrder(
+        authContext({ status: "DISABLED" }),
+        {
+          orderId: "order_1",
+        },
+        repository({
+          async findOrderForLifecycle() {
+            return orderRecord({ status: "PAID" });
+          },
+        }),
+      ),
+    ).rejects.toThrow("Membership is not active");
   });
 });

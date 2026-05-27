@@ -16,6 +16,7 @@ export type OrderLifecycleRecord = {
 
 export type OrderLifecycleActionInput = {
   orderId: string;
+  reason?: string;
   cancelledAt?: Date;
   fulfilledAt?: Date;
 };
@@ -26,6 +27,7 @@ export type OrderLifecycleTransitionInput = {
   storeId: string;
   actorMembershipId: string;
   transitionedAt: Date;
+  reason?: string;
 };
 
 export type OrderLifecycleResult = {

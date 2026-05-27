@@ -32,7 +32,7 @@ export type {
 
 export async function cancelPendingOrder(
   context: AuthContext,
-  input: Pick<OrderLifecycleActionInput, "orderId" | "cancelledAt">,
+  input: Pick<OrderLifecycleActionInput, "orderId" | "cancelledAt" | "reason">,
   repository: OrderLifecycleRepository,
 ): Promise<OrderLifecycleResult> {
   const order = await loadAuthorizedOrder(context, input.orderId, repository);
@@ -46,12 +46,15 @@ export async function cancelPendingOrder(
     });
   }
 
+  const reason = input.reason?.trim();
+
   return repository.cancelPendingOrder({
     organizationId: context.organizationId,
     orderId: order.id,
     storeId: order.storeId,
     actorMembershipId: context.membershipId,
     transitionedAt: input.cancelledAt ?? new Date(),
+    ...(reason ? { reason } : {}),
   });
 }
 
