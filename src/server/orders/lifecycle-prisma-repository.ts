@@ -1,6 +1,10 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import { InvalidOrderTransitionError } from "./errors";
 import type { OrderLifecycleRepository } from "./lifecycle-service";
-import type { OrderLifecycleResult } from "./lifecycle-types";
+import type {
+  OrderLifecycleResult,
+  OrderLifecycleTransitionInput,
+} from "./lifecycle-types";
 
 type PrismaWithOrderLifecycleAccess = Pick<
   PrismaClient,
@@ -15,6 +19,10 @@ const lifecycleOrderSelect = {
   cancelledAt: true,
   fulfilledAt: true,
 } as const;
+
+type LifecycleOrderRow = Prisma.OrderGetPayload<{
+  select: typeof lifecycleOrderSelect;
+}>;
 
 export function createPrismaOrderLifecycleRepository(
   db: PrismaWithOrderLifecycleAccess,
@@ -37,27 +45,10 @@ export function createPrismaOrderLifecycleRepository(
 
     async cancelPendingOrder(input) {
       return db.$transaction(async (tx) => {
-        const order = await tx.order.update({
-          where: {
-            id_organizationId: {
-              id: input.orderId,
-              organizationId: input.organizationId,
-            },
-          },
-          data: {
-            status: "CANCELLED",
-            cancelledAt: input.transitionedAt,
-          },
-          select: lifecycleOrderSelect,
-        });
-
-        await tx.payment.update({
-          where: {
-            orderId: input.orderId,
-          },
-          data: {
-            status: "FAILED",
-          },
+        const order = await transitionOrderOrThrow(tx, input, {
+          expectedStatus: "PENDING_PAYMENT",
+          targetStatus: "CANCELLED",
+          timestampField: "cancelledAt",
         });
 
         await tx.auditLog.create({
@@ -70,7 +61,7 @@ export function createPrismaOrderLifecycleRepository(
             entityId: input.orderId,
             metadata: {
               cancelledAt: input.transitionedAt.toISOString(),
-              paymentStatus: "FAILED",
+              ...(input.reason ? { reason: input.reason } : {}),
             },
           },
         });
@@ -81,18 +72,10 @@ export function createPrismaOrderLifecycleRepository(
 
     async fulfillPaidOrder(input) {
       return db.$transaction(async (tx) => {
-        const order = await tx.order.update({
-          where: {
-            id_organizationId: {
-              id: input.orderId,
-              organizationId: input.organizationId,
-            },
-          },
-          data: {
-            status: "FULFILLED",
-            fulfilledAt: input.transitionedAt,
-          },
-          select: lifecycleOrderSelect,
+        const order = await transitionOrderOrThrow(tx, input, {
+          expectedStatus: "PAID",
+          targetStatus: "FULFILLED",
+          timestampField: "fulfilledAt",
         });
 
         await tx.auditLog.create({
@@ -113,6 +96,47 @@ export function createPrismaOrderLifecycleRepository(
       });
     },
   };
+}
+
+async function transitionOrderOrThrow(
+  tx: Prisma.TransactionClient,
+  input: OrderLifecycleTransitionInput,
+  transition: {
+    expectedStatus: "PENDING_PAYMENT" | "PAID";
+    targetStatus: "CANCELLED" | "FULFILLED";
+    timestampField: "cancelledAt" | "fulfilledAt";
+  },
+): Promise<LifecycleOrderRow> {
+  const updateResult = await tx.order.updateMany({
+    where: {
+      id: input.orderId,
+      organizationId: input.organizationId,
+      status: transition.expectedStatus,
+    },
+    data: {
+      status: transition.targetStatus,
+      [transition.timestampField]: input.transitionedAt,
+    },
+  });
+
+  if (updateResult.count !== 1) {
+    throw new InvalidOrderTransitionError({
+      orderId: input.orderId,
+      currentStatus: "UNKNOWN",
+      expectedStatus: transition.expectedStatus,
+      targetStatus: transition.targetStatus,
+    });
+  }
+
+  return tx.order.findUniqueOrThrow({
+    where: {
+      id_organizationId: {
+        id: input.orderId,
+        organizationId: input.organizationId,
+      },
+    },
+    select: lifecycleOrderSelect,
+  });
 }
 
 function mapLifecycleResult(

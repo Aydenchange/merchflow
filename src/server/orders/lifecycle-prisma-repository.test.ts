@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import { InvalidOrderTransitionError } from "./errors";
 import { createPrismaOrderLifecycleRepository } from "./lifecycle-prisma-repository";
 
 type TransactionClient = {
   order: {
-    update: ReturnType<typeof vi.fn>;
+    updateMany: ReturnType<typeof vi.fn>;
+    findUniqueOrThrow: ReturnType<typeof vi.fn>;
   };
   payment: {
     update: ReturnType<typeof vi.fn>;
@@ -16,7 +18,8 @@ type TransactionClient = {
 function createTransactionClient(): TransactionClient {
   return {
     order: {
-      update: vi.fn(),
+      updateMany: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
     },
     payment: {
       update: vi.fn(),
@@ -79,10 +82,11 @@ describe("prisma order lifecycle repository", () => {
     });
   });
 
-  it("cancels pending order, closes payment, and writes audit log in one transaction", async () => {
+  it("cancels pending order with guarded transition and writes audit log in one transaction", async () => {
     const tx = createTransactionClient();
     const cancelledAt = new Date("2026-05-27T01:00:00.000Z");
-    tx.order.update.mockResolvedValue({
+    tx.order.updateMany.mockResolvedValue({ count: 1 });
+    tx.order.findUniqueOrThrow.mockResolvedValue({
       id: "order_1",
       organizationId: "org_1",
       storeId: "store_1",
@@ -101,18 +105,26 @@ describe("prisma order lifecycle repository", () => {
       storeId: "store_1",
       actorMembershipId: "membership_1",
       transitionedAt: cancelledAt,
+      reason: "Customer changed mind",
     });
 
-    expect(tx.order.update).toHaveBeenCalledWith({
+    expect(tx.order.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "order_1",
+        organizationId: "org_1",
+        status: "PENDING_PAYMENT",
+      },
+      data: {
+        status: "CANCELLED",
+        cancelledAt,
+      },
+    });
+    expect(tx.order.findUniqueOrThrow).toHaveBeenCalledWith({
       where: {
         id_organizationId: {
           id: "order_1",
           organizationId: "org_1",
         },
-      },
-      data: {
-        status: "CANCELLED",
-        cancelledAt,
       },
       select: {
         id: true,
@@ -123,14 +135,7 @@ describe("prisma order lifecycle repository", () => {
         fulfilledAt: true,
       },
     });
-    expect(tx.payment.update).toHaveBeenCalledWith({
-      where: {
-        orderId: "order_1",
-      },
-      data: {
-        status: "FAILED",
-      },
-    });
+    expect(tx.payment.update).not.toHaveBeenCalled();
     expect(tx.auditLog.create).toHaveBeenCalledWith({
       data: {
         organizationId: "org_1",
@@ -141,7 +146,7 @@ describe("prisma order lifecycle repository", () => {
         entityId: "order_1",
         metadata: {
           cancelledAt: cancelledAt.toISOString(),
-          paymentStatus: "FAILED",
+          reason: "Customer changed mind",
         },
       },
     });
@@ -158,7 +163,8 @@ describe("prisma order lifecycle repository", () => {
   it("fulfills paid order and writes audit log without touching payment", async () => {
     const tx = createTransactionClient();
     const fulfilledAt = new Date("2026-05-27T02:00:00.000Z");
-    tx.order.update.mockResolvedValue({
+    tx.order.updateMany.mockResolvedValue({ count: 1 });
+    tx.order.findUniqueOrThrow.mockResolvedValue({
       id: "order_1",
       organizationId: "org_1",
       storeId: "store_1",
@@ -178,16 +184,23 @@ describe("prisma order lifecycle repository", () => {
       transitionedAt: fulfilledAt,
     });
 
-    expect(tx.order.update).toHaveBeenCalledWith({
+    expect(tx.order.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "order_1",
+        organizationId: "org_1",
+        status: "PAID",
+      },
+      data: {
+        status: "FULFILLED",
+        fulfilledAt,
+      },
+    });
+    expect(tx.order.findUniqueOrThrow).toHaveBeenCalledWith({
       where: {
         id_organizationId: {
           id: "order_1",
           organizationId: "org_1",
         },
-      },
-      data: {
-        status: "FULFILLED",
-        fulfilledAt,
       },
       select: {
         id: true,
@@ -220,5 +233,22 @@ describe("prisma order lifecycle repository", () => {
       cancelledAt: null,
       fulfilledAt,
     });
+  });
+
+  it("throws when guarded cancel transition does not update one row", async () => {
+    const tx = createTransactionClient();
+    tx.order.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      createPrismaOrderLifecycleRepository(createDb({ tx })).cancelPendingOrder({
+        organizationId: "org_1",
+        orderId: "order_1",
+        storeId: "store_1",
+        actorMembershipId: "membership_1",
+        transitionedAt: new Date("2026-05-27T01:00:00.000Z"),
+      }),
+    ).rejects.toThrow(InvalidOrderTransitionError);
+
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
 });
