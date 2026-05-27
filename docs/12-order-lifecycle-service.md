@@ -2,44 +2,46 @@
 
 ## Purpose
 
-This document defines the order lifecycle service boundary for MerchFlow.
+This document defines the first order lifecycle transitions after order creation and payment success.
 
-POS order creation creates a `PENDING_PAYMENT` order. Payment success moves the order to `PAID`. This service handles two user-driven lifecycle actions after that: cancelling unpaid orders and fulfilling paid orders.
+MerchFlow V1 supports two human-triggered lifecycle actions:
+
+- cancel a `PENDING_PAYMENT` order
+- fulfill a `PAID` order
 
 ## Why This Layer Exists
 
-Order lifecycle transitions are state-machine operations, not generic updates.
+Order status is a business state machine, not a free-form field.
 
 The service must:
 
-- load the persisted order before authorization
-- authorize against the store recorded on the order
-- allow only `PENDING_PAYMENT -> CANCELLED`
-- allow only `PAID -> FULFILLED`
-- write audit logs for both transitions
-- avoid inventory mutation during cancellation and fulfillment
+- load orders inside the current organization boundary
+- enforce store access before changing state
+- allow only valid state transitions
+- record who performed the action
+- write audit logs for sensitive lifecycle changes
+- avoid inventory mutation in both cancellation and fulfillment
 
 ## V1 Rules
 
-- Staff, manager, and owner can cancel or fulfill orders for stores they can access.
-- Missing orders return a domain error.
-- Cancelling is allowed only from `PENDING_PAYMENT`.
-- Cancelling an unpaid order does not affect stock.
-- Cancelling closes the local pending payment as `FAILED` in V1.
-- Fulfillment is allowed only from `PAID`.
-- Fulfillment records `fulfilledAt`.
-- Fulfillment does not change stock because payment success already deducted stock.
+- A `PENDING_PAYMENT` order can become `CANCELLED`.
+- Cancelling a pending order does not update inventory because no stock was deducted yet.
+- Only a `PAID` order can become `FULFILLED`.
+- Fulfilling an order records `fulfilledAt`.
+- Fulfillment does not update inventory because payment success already deducted stock.
+- Staff, managers, and owners can cancel or fulfill orders in stores they can access.
+- Managers and staff cannot operate orders in unassigned stores.
 
 ## Production Problems This Design Handles
 
-- The client cannot authorize against a forged store id because the service loads the order first.
-- Invalid state transitions are rejected before persistence.
-- Audit logs explain who cancelled or fulfilled the order.
-- Payment and fulfillment remain separate concepts.
+- Prevents double stock deduction during fulfillment.
+- Prevents accidental cancellation of paid orders after money and stock have moved.
+- Repeats status guards in the repository so concurrent state changes cannot pass based only on stale service reads.
+- Keeps audit trail for who cancelled or fulfilled an order.
 
 ## Interview Talking Points
 
-- "I treated cancel and fulfill as explicit state transitions instead of open-ended order updates."
-- "I load the order before checking store access so authorization uses server-owned data, not client-submitted store ids."
-- "I do not mutate stock on fulfillment because inventory was already committed at payment success."
-- "For V1 local payment simulation, cancelling a pending order closes the pending payment as `FAILED`; a real provider integration would cancel the payment intent."
+- "I modeled order status as explicit transitions instead of letting callers patch arbitrary statuses."
+- "I kept fulfillment separate from payment because a paid order may not be handed over immediately."
+- "I avoided stock mutation on fulfillment because stock was already deducted at payment confirmation."
+- "I repeated transition guards in the Prisma adapter to handle races between staff actions and webhook processing."

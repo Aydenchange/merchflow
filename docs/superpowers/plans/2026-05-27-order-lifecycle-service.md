@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add order lifecycle actions for cancelling unpaid orders and fulfilling paid orders with authorization, explicit state transitions, and audit logs.
+**Goal:** Add order lifecycle operations for cancelling unpaid orders and fulfilling paid orders with authorization, state transition guards, and audit logging.
 
-**Architecture:** Keep lifecycle transitions separate from POS order creation and payment processing. The service loads the persisted order first, authorizes against the real store on the order, validates the current order state, then delegates the database mutation and audit write to a Prisma repository transaction. Cancellation closes the local pending payment as `FAILED`; fulfillment only changes order state because inventory was already deducted at payment success.
+**Architecture:** Keep lifecycle transitions separate from POS order creation. Implement a pure lifecycle service that loads the order inside the organization boundary, checks store access, validates the current order state, and delegates the atomic status change to a repository. The Prisma adapter owns the transaction and repeats status guards at write time to protect against concurrent state changes.
 
 **Tech Stack:** TypeScript, Vitest, Prisma 7, PostgreSQL.
 
@@ -14,30 +14,32 @@
 
 Included:
 
-- Order lifecycle design note.
-- Order lifecycle service types.
-- `cancelPendingOrder` service.
-- `fulfillPaidOrder` service.
-- Tests for authorization, missing order, invalid transitions, cancelled timestamp, fulfilled timestamp, and repository input.
-- Prisma repository for order lookup, cancellation transaction, fulfillment transaction, and audit logging.
+- Order lifecycle service design note.
+- Lifecycle-specific order errors.
+- Repository contract for loading and transitioning orders.
+- `cancelPendingOrder` service for `PENDING_PAYMENT -> CANCELLED`.
+- `fulfillPaidOrder` service for `PAID -> FULFILLED`.
+- Tests for authorization, missing order, invalid transitions, reason trimming, and timestamp propagation.
+- Prisma-backed lifecycle repository that updates order status and writes audit logs in one transaction.
 
 Excluded:
 
-- UI actions.
+- UI buttons.
 - Server Actions.
-- Real provider payment-intent cancellation.
-- Refund processing.
-- Review queue resolution.
+- Refund handling.
+- Payment failure handling.
+- Shipment/tracking model.
+- Receipt printing.
 
 ## File Structure
 
-- `docs/12-order-lifecycle-service.md`: Explains lifecycle transition rules.
-- `src/server/orders/errors.ts`: Add lifecycle-specific order errors.
-- `src/server/orders/lifecycle-types.ts`: Lifecycle service input/output and repository types.
-- `src/server/orders/lifecycle-service.ts`: Pure service functions.
+- `docs/12-order-lifecycle-service.md`: Explains cancellation and fulfillment boundaries.
+- `src/server/orders/lifecycle-service.ts`: Pure lifecycle service functions and repository contract.
 - `src/server/orders/lifecycle-service.test.ts`: TDD coverage for service behavior.
 - `src/server/orders/lifecycle-prisma-repository.ts`: Prisma transaction adapter.
 - `src/server/orders/lifecycle-prisma-repository.test.ts`: Unit tests for Prisma adapter call shape.
+- Modify `src/server/orders/errors.ts`: Add lifecycle-specific errors.
+- Modify `src/server/orders/types.ts`: Add lifecycle record/result/input types.
 
 ## Task 1: Document Order Lifecycle Boundary
 
@@ -54,47 +56,49 @@ Create `docs/12-order-lifecycle-service.md`:
 
 ## Purpose
 
-This document defines the order lifecycle service boundary for MerchFlow.
+This document defines the first order lifecycle transitions after order creation and payment success.
 
-POS order creation creates a `PENDING_PAYMENT` order. Payment success moves the order to `PAID`. This service handles two user-driven lifecycle actions after that: cancelling unpaid orders and fulfilling paid orders.
+MerchFlow V1 supports two human-triggered lifecycle actions:
+
+- cancel a `PENDING_PAYMENT` order
+- fulfill a `PAID` order
 
 ## Why This Layer Exists
 
-Order lifecycle transitions are state-machine operations, not generic updates.
+Order status is a business state machine, not a free-form field.
 
 The service must:
 
-- load the persisted order before authorization
-- authorize against the store recorded on the order
-- allow only `PENDING_PAYMENT -> CANCELLED`
-- allow only `PAID -> FULFILLED`
-- write audit logs for both transitions
-- avoid inventory mutation during cancellation and fulfillment
+- load orders inside the current organization boundary
+- enforce store access before changing state
+- allow only valid state transitions
+- record who performed the action
+- write audit logs for sensitive lifecycle changes
+- avoid inventory mutation in both cancellation and fulfillment
 
 ## V1 Rules
 
-- Staff, manager, and owner can cancel or fulfill orders for stores they can access.
-- Missing orders return a domain error.
-- Cancelling is allowed only from `PENDING_PAYMENT`.
-- Cancelling an unpaid order does not affect stock.
-- Cancelling closes the local pending payment as `FAILED` in V1.
-- Fulfillment is allowed only from `PAID`.
-- Fulfillment records `fulfilledAt`.
-- Fulfillment does not change stock because payment success already deducted stock.
+- A `PENDING_PAYMENT` order can become `CANCELLED`.
+- Cancelling a pending order does not update inventory because no stock was deducted yet.
+- Only a `PAID` order can become `FULFILLED`.
+- Fulfilling an order records `fulfilledAt`.
+- Fulfillment does not update inventory because payment success already deducted stock.
+- Staff, managers, and owners can cancel or fulfill orders in stores they can access.
+- Managers and staff cannot operate orders in unassigned stores.
 
 ## Production Problems This Design Handles
 
-- The client cannot authorize against a forged store id because the service loads the order first.
-- Invalid state transitions are rejected before persistence.
-- Audit logs explain who cancelled or fulfilled the order.
-- Payment and fulfillment remain separate concepts.
+- Prevents double stock deduction during fulfillment.
+- Prevents accidental cancellation of paid orders after money and stock have moved.
+- Repeats status guards in the repository so concurrent state changes cannot pass based only on stale service reads.
+- Keeps audit trail for who cancelled or fulfilled an order.
 
 ## Interview Talking Points
 
-- "I treated cancel and fulfill as explicit state transitions instead of open-ended order updates."
-- "I load the order before checking store access so authorization uses server-owned data, not client-submitted store ids."
-- "I do not mutate stock on fulfillment because inventory was already committed at payment success."
-- "For V1 local payment simulation, cancelling a pending order closes the pending payment as `FAILED`; a real provider integration would cancel the payment intent."
+- "I modeled order status as explicit transitions instead of letting callers patch arbitrary statuses."
+- "I kept fulfillment separate from payment because a paid order may not be handed over immediately."
+- "I avoided stock mutation on fulfillment because stock was already deducted at payment confirmation."
+- "I repeated transition guards in the Prisma adapter to handle races between staff actions and webhook processing."
 ```
 
 - [ ] **Step 2: Commit design document**
@@ -108,28 +112,29 @@ git commit -m "docs: define order lifecycle service"
 
 Expected:
 
-- Commit records order lifecycle decisions before implementation.
+- Commit records lifecycle decisions before implementation.
 
-## Task 2: Add Order Lifecycle Service With TDD
+## Task 2: Add Lifecycle Service With TDD
 
 **Files:**
 
 - Create: `src/server/orders/lifecycle-service.test.ts`
-- Modify: `src/server/orders/errors.ts`
-- Create: `src/server/orders/lifecycle-types.ts`
 - Create: `src/server/orders/lifecycle-service.ts`
+- Modify: `src/server/orders/errors.ts`
+- Modify: `src/server/orders/types.ts`
 
 - [ ] **Step 1: Write failing tests**
 
 Create `src/server/orders/lifecycle-service.test.ts` with tests covering:
 
-- cancelling a pending order for an assigned store
-- denying cancellation for an unassigned store
-- rejecting cancellation when order is missing
-- rejecting cancellation when order is already paid
-- fulfilling a paid order for an assigned store
-- rejecting fulfillment when order is pending payment
-- owner can fulfill any organization order
+- staff cancels pending order in an assigned store
+- cancel trims optional reason
+- cancelling a paid order is rejected
+- fulfilling a paid order in an assigned store succeeds
+- fulfilling a pending order is rejected
+- missing order is rejected
+- unassigned store access is rejected
+- disabled membership is rejected through existing authorization policy
 
 - [ ] **Step 2: Run test to verify RED**
 
@@ -141,27 +146,22 @@ npm run test -- src/server/orders/lifecycle-service.test.ts
 
 Expected:
 
-- FAIL because lifecycle service files do not exist or lifecycle errors are not exported.
+- FAIL because lifecycle service files/functions do not exist.
 
 - [ ] **Step 3: Implement lifecycle service**
 
-Modify `src/server/orders/errors.ts`:
-
-- Add `OrderNotFoundError`.
-- Add `InvalidOrderTransitionError`.
-
-Create `src/server/orders/lifecycle-types.ts` and `src/server/orders/lifecycle-service.ts`.
+Create `src/server/orders/lifecycle-service.ts` and modify shared order error/type files.
 
 The implementation must:
 
 - expose `cancelPendingOrder`
 - expose `fulfillPaidOrder`
-- load the order through `findOrderForLifecycle`
-- throw `OrderNotFoundError` when missing
-- call `assertCanCreateSale` with the loaded order's `storeId`
-- reject invalid source statuses with `InvalidOrderTransitionError`
-- default transition timestamps to `new Date()`
-- pass `actorMembershipId` to the repository for audit logging
+- use `assertCanCreateSale` after loading the order record
+- throw `OrderNotFoundError` when the repository returns null
+- throw `InvalidOrderTransitionError` when current status does not allow the transition
+- default timestamps to `new Date()` but accept explicit timestamps for tests
+- trim optional cancellation reason and omit blank reason
+- pass organization id, order id, store id, actor membership id, timestamp, and reason to the repository
 
 - [ ] **Step 4: Run test to verify GREEN**
 
@@ -180,7 +180,7 @@ Expected:
 Run:
 
 ```powershell
-git add src/server/orders/errors.ts src/server/orders/lifecycle-types.ts src/server/orders/lifecycle-service.ts src/server/orders/lifecycle-service.test.ts
+git add src/server/orders/errors.ts src/server/orders/types.ts src/server/orders/lifecycle-service.ts src/server/orders/lifecycle-service.test.ts
 git commit -m "feat: add order lifecycle service"
 ```
 
@@ -199,9 +199,12 @@ Expected:
 
 Create `src/server/orders/lifecycle-prisma-repository.test.ts` with tests covering:
 
-- order lookup scoped by organization and order id
-- cancellation updates order, closes payment as failed, and writes audit log in one transaction
-- fulfillment updates order and writes audit log without touching payment or inventory
+- order lookup is scoped by organization
+- cancel transition uses guarded `updateMany`
+- cancel writes audit log with optional reason
+- fulfill transition uses guarded `updateMany`
+- fulfill writes audit log
+- guarded update failure throws `InvalidOrderTransitionError`
 
 - [ ] **Step 2: Run test to verify RED**
 
@@ -213,22 +216,21 @@ npm run test -- src/server/orders/lifecycle-prisma-repository.test.ts
 
 Expected:
 
-- FAIL because lifecycle Prisma repository does not exist.
+- FAIL because Prisma lifecycle repository does not exist.
 
-- [ ] **Step 3: Implement Prisma repository**
+- [ ] **Step 3: Implement Prisma lifecycle repository**
 
 Create `src/server/orders/lifecycle-prisma-repository.ts`.
 
 The implementation must:
 
 - expose `createPrismaOrderLifecycleRepository`
-- use `order.findFirst` scoped by `organizationId` and order id
-- use transactions for cancellation and fulfillment
-- use compound `id_organizationId` where available for order updates
-- update order `status` and transition timestamp
-- update payment status to `FAILED` when cancelling unpaid order
-- write audit logs with actor, organization, store, action, entity type, entity id, and metadata
-- not update payment or inventory during fulfillment
+- load order status and store id by organization and order id
+- wrap cancel and fulfill in `$transaction`
+- use `updateMany` with current status guard for transition writes
+- write an audit log in the same transaction
+- throw `InvalidOrderTransitionError` if guarded update count is not `1`
+- return lifecycle result objects with order id, status, and timestamp
 
 - [ ] **Step 4: Run tests and build**
 
@@ -314,11 +316,12 @@ Expected:
 
 Spec coverage:
 
-- Covers cancellation from pending payment without inventory mutation.
-- Covers fulfillment from paid order without inventory mutation.
-- Covers authorization against persisted order store.
-- Covers audit logging for both lifecycle transitions.
-- Defers refund and real provider cancellation to later slices.
+- Covers cancellation of pending unpaid orders.
+- Covers fulfillment of paid orders.
+- Covers authorization and tenant/store boundaries.
+- Covers audit logging.
+- Covers no inventory mutation during cancellation or fulfillment.
+- Defers refunds and payment failure to later slices.
 
 Placeholder scan:
 
@@ -327,5 +330,5 @@ Placeholder scan:
 Type consistency:
 
 - Order status strings match Prisma `OrderStatus`.
-- Payment cancellation uses existing V1 `FAILED` payment status.
-- Repository input and output fields match lifecycle service types.
+- Repository inputs include the fields required to write audit logs.
+- Lifecycle result timestamps map to `cancelledAt` and `fulfilledAt`.
