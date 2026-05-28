@@ -18,6 +18,10 @@ import {
   type LoadDemoControlCenterInput,
   type RefundDemoOrderInput,
 } from "./control-action-handlers";
+import {
+  createAuditActionHandlers,
+  type LoadDemoAuditTrailInput,
+} from "./audit-action-handlers";
 import type { DemoRole } from "../server/demo/workbench";
 import type { LoadDemoOperationsDashboardInput } from "../server/demo/operations";
 
@@ -30,6 +34,10 @@ const operationsHandlers = createOperationsActionHandlers({
   revalidatePath,
 });
 const controlHandlers = createControlActionHandlers({
+  getDb,
+  revalidatePath,
+});
+const auditHandlers = createAuditActionHandlers({
   getDb,
   revalidatePath,
 });
@@ -74,4 +82,8 @@ export async function refundOrderAction(input: RefundDemoOrderInput) {
 
 export async function adjustStockAction(input: AdjustDemoStockInput) {
   return controlHandlers.adjustStockAction(input);
+}
+
+export async function loadAuditTrailAction(input: LoadDemoAuditTrailInput) {
+  return auditHandlers.loadAuditTrailAction(input);
 }

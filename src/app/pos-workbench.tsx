@@ -7,6 +7,7 @@ import {
   lookupSkuAction,
   simulatePaymentSuccessAction,
 } from "./actions";
+import { AuditTrail } from "./audit-trail";
 import { ControlCenter } from "./control-center";
 import { OperationsDashboard } from "./operations-dashboard";
 import {
@@ -38,7 +39,7 @@ type WorkbenchEvent = {
   detail: string;
 };
 
-type AppView = "pos" | "operations" | "control";
+type AppView = "pos" | "operations" | "control" | "audit";
 
 const roleOptions: Array<{ value: DemoRole; label: string }> = [
   { value: "owner", label: "Owner" },
@@ -332,6 +333,17 @@ export function PosWorkbench({ initialContext }: PosWorkbenchProps) {
           >
             Control
           </button>
+          <button
+            className={`h-9 rounded-md px-4 text-sm font-semibold transition ${
+              activeView === "audit"
+                ? "bg-stone-950 text-white"
+                : "border border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
+            }`}
+            type="button"
+            onClick={() => setActiveView("audit")}
+          >
+            Audit
+          </button>
         </nav>
       </div>
 
@@ -342,6 +354,11 @@ export function PosWorkbench({ initialContext }: PosWorkbenchProps) {
           key={`${currentContext.role}:${selectedStoreId}`}
           context={currentContext}
           selectedStoreId={selectedStoreId}
+        />
+      ) : activeView === "audit" ? (
+        <AuditTrail
+          key={`${currentContext.role}:${selectedStoreId}`}
+          context={currentContext}
         />
       ) : (
       <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_400px] lg:px-8">
