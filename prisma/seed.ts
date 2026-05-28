@@ -183,6 +183,36 @@ async function main() {
     },
   });
 
+  const toteProduct = await prisma.product.upsert({
+    where: { id: "product_tote" },
+    update: {},
+    create: {
+      id: "product_tote",
+      organizationId: organization.id,
+      name: "Canvas Tote Bag",
+      description: "Reusable tote for low-stock dashboard demo",
+    },
+  });
+
+  const canvasTote = await prisma.sku.upsert({
+    where: {
+      organizationId_barcode: {
+        organizationId: organization.id,
+        barcode: "9555000000029",
+      },
+    },
+    update: {},
+    create: {
+      id: "sku_tote_canvas",
+      organizationId: organization.id,
+      productId: toteProduct.id,
+      name: "Canvas Tote Bag / Natural",
+      barcode: "9555000000029",
+      priceAmount: 2500,
+      costAmount: 900,
+    },
+  });
+
   await prisma.inventoryBalance.upsert({
     where: {
       organizationId_storeId_skuId: {
@@ -200,6 +230,48 @@ async function main() {
       storeId: orchard.id,
       skuId: blackMedium.id,
       quantityOnHand: 24,
+      lowStockThreshold: 5,
+    },
+  });
+
+  await prisma.inventoryBalance.upsert({
+    where: {
+      organizationId_storeId_skuId: {
+        organizationId: organization.id,
+        storeId: orchard.id,
+        skuId: canvasTote.id,
+      },
+    },
+    update: {
+      quantityOnHand: 3,
+      lowStockThreshold: 5,
+    },
+    create: {
+      organizationId: organization.id,
+      storeId: orchard.id,
+      skuId: canvasTote.id,
+      quantityOnHand: 3,
+      lowStockThreshold: 5,
+    },
+  });
+
+  await prisma.inventoryBalance.upsert({
+    where: {
+      organizationId_storeId_skuId: {
+        organizationId: organization.id,
+        storeId: klcc.id,
+        skuId: canvasTote.id,
+      },
+    },
+    update: {
+      quantityOnHand: 12,
+      lowStockThreshold: 5,
+    },
+    create: {
+      organizationId: organization.id,
+      storeId: klcc.id,
+      skuId: canvasTote.id,
+      quantityOnHand: 12,
       lowStockThreshold: 5,
     },
   });
