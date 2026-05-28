@@ -4,6 +4,7 @@ import { createPrismaControlCenterRepository } from "./control-prisma-repository
 function createDb(overrides: {
   orderFindMany?: ReturnType<typeof vi.fn>;
   inventoryBalanceFindMany?: ReturnType<typeof vi.fn>;
+  stockLedgerGroupBy?: ReturnType<typeof vi.fn>;
 } = {}) {
   return {
     order: {
@@ -11,6 +12,9 @@ function createDb(overrides: {
     },
     inventoryBalance: {
       findMany: overrides.inventoryBalanceFindMany ?? vi.fn(),
+    },
+    stockLedger: {
+      groupBy: overrides.stockLedgerGroupBy ?? vi.fn(),
     },
   } as unknown as Parameters<typeof createPrismaControlCenterRepository>[0];
 }
@@ -236,6 +240,133 @@ describe("prisma control center repository", () => {
         barcode: "9555000000012",
         quantityOnHand: 24,
         lowStockThreshold: 5,
+      },
+    ]);
+  });
+
+  it("lists refunded return-restock candidates with remaining restockable quantity", async () => {
+    const refundedAt = new Date("2026-05-28T10:00:00.000Z");
+    const orderFindMany = vi.fn().mockResolvedValue([
+      {
+        id: "order_refunded",
+        organizationId: "org_1",
+        storeId: "store_1",
+        refundedAt,
+        store: {
+          name: "Orchard Central",
+          code: "ORCHARD",
+        },
+        items: [
+          {
+            id: "item_1",
+            skuId: "sku_1",
+            skuNameSnapshot: "Classic T-Shirt / Black / M",
+            barcodeSnapshot: "9555000000012",
+            quantity: 2,
+          },
+          {
+            id: "item_2",
+            skuId: "sku_2",
+            skuNameSnapshot: "Canvas Tote Bag / Natural",
+            barcodeSnapshot: "9555000000029",
+            quantity: 1,
+          },
+        ],
+      },
+    ]);
+    const stockLedgerGroupBy = vi.fn().mockResolvedValue([
+      {
+        relatedOrderId: "order_refunded",
+        skuId: "sku_1",
+        _sum: {
+          quantityDelta: 1,
+        },
+      },
+      {
+        relatedOrderId: "order_refunded",
+        skuId: "sku_2",
+        _sum: {
+          quantityDelta: 1,
+        },
+      },
+    ]);
+
+    const result = await createPrismaControlCenterRepository(
+      createDb({ orderFindMany, stockLedgerGroupBy }),
+    ).listReturnRestockCandidates({
+      organizationId: "org_1",
+      storeScope: {
+        allStores: false,
+        storeIds: ["store_1"],
+      },
+    });
+
+    expect(orderFindMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: "org_1",
+        storeId: {
+          in: ["store_1"],
+        },
+        status: "REFUNDED",
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        storeId: true,
+        refundedAt: true,
+        store: {
+          select: {
+            name: true,
+            code: true,
+          },
+        },
+        items: {
+          select: {
+            id: true,
+            skuId: true,
+            skuNameSnapshot: true,
+            barcodeSnapshot: true,
+            quantity: true,
+          },
+        },
+      },
+      orderBy: {
+        refundedAt: "desc",
+      },
+      take: 8,
+    });
+    expect(stockLedgerGroupBy).toHaveBeenCalledWith({
+      by: ["relatedOrderId", "skuId"],
+      where: {
+        organizationId: "org_1",
+        relatedOrderId: {
+          in: ["order_refunded"],
+        },
+        reason: "RETURN_RESTOCK",
+      },
+      _sum: {
+        quantityDelta: true,
+      },
+    });
+    expect(result).toEqual([
+      {
+        orderId: "order_refunded",
+        organizationId: "org_1",
+        storeId: "store_1",
+        storeName: "Orchard Central",
+        storeCode: "ORCHARD",
+        refundedAt,
+        items: [
+          {
+            orderItemId: "item_1",
+            skuId: "sku_1",
+            skuName: "Classic T-Shirt / Black / M",
+            barcode: "9555000000012",
+            orderedQuantity: 2,
+            quantityRestocked: 1,
+            restockableQuantity: 1,
+          },
+        ],
       },
     ]);
   });

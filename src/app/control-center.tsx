@@ -6,10 +6,12 @@ import {
   fulfillOrderAction,
   loadControlCenterAction,
   refundOrderAction,
+  restockReturnAction,
 } from "./actions";
 import type {
   ControlCenterInventoryOption,
   DemoControlCenter,
+  SerializableControlCenterReturnRestockCandidate,
   SerializableControlCenterOrder,
 } from "../server/demo/control-center";
 import type { DemoActionResult, DemoContextView } from "../server/demo/workbench";
@@ -30,6 +32,8 @@ type ControlEvent = {
 
 const EMPTY_ORDERS: SerializableControlCenterOrder[] = [];
 const EMPTY_INVENTORY_OPTIONS: ControlCenterInventoryOption[] = [];
+const EMPTY_RETURN_RESTOCK_CANDIDATES: SerializableControlCenterReturnRestockCandidate[] =
+  [];
 
 export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) {
   const [controlResult, setControlResult] =
@@ -42,6 +46,10 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
   const [adjustSkuId, setAdjustSkuId] = useState("");
   const [adjustDelta, setAdjustDelta] = useState("1");
   const [adjustNote, setAdjustNote] = useState("");
+  const [selectedReturnOrderId, setSelectedReturnOrderId] = useState("");
+  const [selectedReturnSkuId, setSelectedReturnSkuId] = useState("");
+  const [returnQuantity, setReturnQuantity] = useState("1");
+  const [returnNote, setReturnNote] = useState("");
   const [events, setEvents] = useState<ControlEvent[]>([]);
   const [isPending, startTransition] = useTransition();
 
@@ -51,6 +59,8 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
     : null;
   const orders = control?.orders ?? EMPTY_ORDERS;
   const inventoryOptions = control?.inventoryOptions ?? EMPTY_INVENTORY_OPTIONS;
+  const returnRestockCandidates =
+    control?.returnRestockCandidates ?? EMPTY_RETURN_RESTOCK_CANDIDATES;
   const selectedOrder =
     orders.find((order) => order.id === selectedOrderId) ?? null;
   const selectedRefundOrder =
@@ -61,6 +71,14 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
   );
   const selectedInventoryOption =
     skuOptions.find((option) => option.skuId === adjustSkuId) ?? null;
+  const selectedReturnCandidate =
+    returnRestockCandidates.find(
+      (candidate) => candidate.orderId === selectedReturnOrderId,
+    ) ?? null;
+  const selectedReturnItem =
+    selectedReturnCandidate?.items.find(
+      (item) => item.skuId === selectedReturnSkuId,
+    ) ?? null;
 
   function pushEvent(tone: EventTone, title: string, detail: string) {
     setEvents((current) => [
@@ -94,6 +112,8 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
       const nextSku = result.data.inventoryOptions.find(
         (option) => option.storeId === nextStoreId,
       );
+      const nextReturnCandidate = result.data.returnRestockCandidates[0];
+      const nextReturnItem = nextReturnCandidate?.items[0];
 
       setSelectedOrderId((current) =>
         result.data.orders.some((order) => order.id === current)
@@ -108,10 +128,22 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
           ? current
           : nextSku?.skuId ?? "",
       );
+      setSelectedReturnOrderId((current) =>
+        result.data.returnRestockCandidates.some(
+          (candidate) => candidate.orderId === current,
+        )
+          ? current
+          : nextReturnCandidate?.orderId ?? "",
+      );
+      setSelectedReturnSkuId((current) =>
+        nextReturnCandidate?.items.some((item) => item.skuId === current)
+          ? current
+          : nextReturnItem?.skuId ?? "",
+      );
       pushEvent(
         "info",
         "Control data loaded",
-        `${result.data.orders.length} orders, ${result.data.inventoryOptions.length} inventory rows`,
+        `${result.data.orders.length} orders, ${result.data.returnRestockCandidates.length} return candidates`,
       );
     } else {
       pushEvent("error", "Control load failed", result.message);
@@ -211,6 +243,44 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
     });
   }
 
+  function handleReturnRestock(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedReturnCandidate || !selectedReturnItem) {
+      pushEvent("warning", "Return item required", "Select a refunded order item");
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await restockReturnAction({
+        role: context.role,
+        orderId: selectedReturnCandidate.orderId,
+        items: [
+          {
+            skuId: selectedReturnItem.skuId,
+            quantity: Number(returnQuantity),
+          },
+        ],
+        note: returnNote,
+      });
+
+      if (!result.ok) {
+        pushEvent("error", "Return restock rejected", result.message);
+        return;
+      }
+
+      setReturnNote("");
+      pushEvent(
+        "success",
+        "Return restocked",
+        `${result.data.orderId} ${result.data.items
+          .map((item) => `${item.skuId} +${item.quantity}`)
+          .join(", ")}`,
+      );
+      await refreshControlCenter();
+    });
+  }
+
   return (
     <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:px-8">
       <section className="rounded-md border border-stone-200 bg-white p-4 shadow-sm">
@@ -253,6 +323,10 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
           <MetricTile
             label="Inventory rows"
             value={`${inventoryOptions.length}`}
+          />
+          <MetricTile
+            label="Return candidates"
+            value={`${returnRestockCandidates.length}`}
           />
         </div>
       </section>
@@ -497,6 +571,101 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
             </button>
           </form>
 
+          <form
+            className="rounded-md border border-stone-200 bg-white p-4 shadow-sm"
+            onSubmit={handleReturnRestock}
+          >
+            <h3 className="text-base font-semibold">Return restock</h3>
+
+            <div className="mt-4 grid gap-3">
+              <label className="grid gap-1 text-sm font-medium text-stone-700">
+                Refunded order
+                <select
+                  className="h-10 rounded-md border border-stone-300 bg-white px-3 text-sm text-stone-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                  value={selectedReturnOrderId}
+                  disabled={isPending || returnRestockCandidates.length === 0}
+                  onChange={(event) => {
+                    const nextOrderId = event.target.value;
+                    const nextCandidate = returnRestockCandidates.find(
+                      (candidate) => candidate.orderId === nextOrderId,
+                    );
+
+                    setSelectedReturnOrderId(nextOrderId);
+                    setSelectedReturnSkuId(nextCandidate?.items[0]?.skuId ?? "");
+                  }}
+                >
+                  {returnRestockCandidates.length === 0 ? (
+                    <option value="">No refunded orders</option>
+                  ) : null}
+                  {returnRestockCandidates.map((candidate) => (
+                    <option key={candidate.orderId} value={candidate.orderId}>
+                      {candidate.storeCode} - {shortId(candidate.orderId)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-1 text-sm font-medium text-stone-700">
+                Item
+                <select
+                  className="h-10 rounded-md border border-stone-300 bg-white px-3 text-sm text-stone-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                  value={selectedReturnSkuId}
+                  disabled={isPending || !selectedReturnCandidate}
+                  onChange={(event) => setSelectedReturnSkuId(event.target.value)}
+                >
+                  {selectedReturnCandidate?.items.map((item) => (
+                    <option key={item.skuId} value={item.skuId}>
+                      {item.skuName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid gap-3 sm:grid-cols-[130px_minmax(0,1fr)]">
+                <label className="grid gap-1 text-sm font-medium text-stone-700">
+                  Quantity
+                  <input
+                    className="h-10 rounded-md border border-stone-300 bg-white px-3 font-mono text-sm text-stone-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                    type="number"
+                    min="1"
+                    max={selectedReturnItem?.restockableQuantity ?? 1}
+                    step="1"
+                    value={returnQuantity}
+                    disabled={isPending || !selectedReturnItem}
+                    onChange={(event) => setReturnQuantity(event.target.value)}
+                  />
+                </label>
+
+                <div className="grid gap-1 text-sm">
+                  <span className="font-medium text-stone-700">Available</span>
+                  <span className="grid h-10 items-center rounded-md border border-stone-200 bg-stone-50 px-3 font-mono text-sm font-semibold text-stone-950">
+                    {selectedReturnItem
+                      ? `${selectedReturnItem.restockableQuantity} restockable`
+                      : "No item selected"}
+                  </span>
+                </div>
+              </div>
+
+              <label className="grid gap-1 text-sm font-medium text-stone-700">
+                Inspection note
+                <input
+                  className="h-10 rounded-md border border-stone-300 bg-white px-3 text-sm text-stone-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                  value={returnNote}
+                  disabled={isPending}
+                  onChange={(event) => setReturnNote(event.target.value)}
+                />
+              </label>
+            </div>
+
+            <button
+              className="mt-4 h-10 w-full rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-stone-300"
+              type="submit"
+              disabled={isPending || !selectedReturnCandidate || !selectedReturnItem}
+            >
+              Restock return
+            </button>
+          </form>
+
           <section className="rounded-md border border-stone-200 bg-white shadow-sm">
             <div className="flex items-center justify-between border-b border-stone-200 px-4 py-3">
               <h3 className="text-base font-semibold">Control events</h3>
@@ -668,6 +837,10 @@ function eventToneClass(tone: EventTone) {
 
 function formatSignedQuantity(value: number) {
   return value > 0 ? `+${value}` : `${value}`;
+}
+
+function shortId(value: string) {
+  return value.length > 8 ? value.slice(0, 8) : value;
 }
 
 function formatDateTime(value: string | null) {

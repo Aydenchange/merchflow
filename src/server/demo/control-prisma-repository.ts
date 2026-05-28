@@ -8,7 +8,7 @@ import type {
 
 type PrismaWithControlCenterAccess = Pick<
   PrismaClient,
-  "inventoryBalance" | "order"
+  "inventoryBalance" | "order" | "stockLedger"
 >;
 
 const orderSelect = {
@@ -59,9 +59,34 @@ const inventoryOptionSelect = {
   },
 } satisfies Prisma.InventoryBalanceSelect;
 
+const returnRestockCandidateSelect = {
+  id: true,
+  organizationId: true,
+  storeId: true,
+  refundedAt: true,
+  store: {
+    select: {
+      name: true,
+      code: true,
+    },
+  },
+  items: {
+    select: {
+      id: true,
+      skuId: true,
+      skuNameSnapshot: true,
+      barcodeSnapshot: true,
+      quantity: true,
+    },
+  },
+} satisfies Prisma.OrderSelect;
+
 type OrderRow = Prisma.OrderGetPayload<{ select: typeof orderSelect }>;
 type InventoryOptionRow = Prisma.InventoryBalanceGetPayload<{
   select: typeof inventoryOptionSelect;
+}>;
+type ReturnRestockCandidateRow = Prisma.OrderGetPayload<{
+  select: typeof returnRestockCandidateSelect;
 }>;
 
 export function createPrismaControlCenterRepository(
@@ -116,6 +141,48 @@ export function createPrismaControlCenterRepository(
       });
 
       return options.map(mapInventoryOptionRow);
+    },
+
+    async listReturnRestockCandidates(input) {
+      const where = scopedWhere(input);
+
+      if (!where) {
+        return [];
+      }
+
+      const orders = await db.order.findMany({
+        where: {
+          ...where,
+          status: "REFUNDED",
+        },
+        select: returnRestockCandidateSelect,
+        orderBy: {
+          refundedAt: "desc",
+        },
+        take: 8,
+      });
+
+      if (orders.length === 0) {
+        return [];
+      }
+
+      const restockedQuantities = await db.stockLedger.groupBy({
+        by: ["relatedOrderId", "skuId"],
+        where: {
+          organizationId: input.organizationId,
+          relatedOrderId: {
+            in: orders.map((order) => order.id),
+          },
+          reason: "RETURN_RESTOCK",
+        },
+        _sum: {
+          quantityDelta: true,
+        },
+      });
+
+      return orders
+        .map((order) => mapReturnRestockCandidateRow(order, restockedQuantities))
+        .filter((candidate) => candidate.items.length > 0);
     },
   };
 }
@@ -176,5 +243,51 @@ function mapInventoryOptionRow(
     barcode: option.sku.barcode,
     quantityOnHand: option.quantityOnHand,
     lowStockThreshold: option.lowStockThreshold,
+  };
+}
+
+function mapReturnRestockCandidateRow(
+  order: ReturnRestockCandidateRow,
+  restockedQuantities: Array<{
+    relatedOrderId: string | null;
+    skuId: string;
+    _sum: {
+      quantityDelta: number | null;
+    };
+  }>,
+) {
+  const restockedQuantityBySku = new Map<string, number>();
+
+  for (const item of restockedQuantities) {
+    if (item.relatedOrderId !== order.id) {
+      continue;
+    }
+
+    restockedQuantityBySku.set(item.skuId, item._sum.quantityDelta ?? 0);
+  }
+
+  return {
+    orderId: order.id,
+    organizationId: order.organizationId,
+    storeId: order.storeId,
+    storeName: order.store.name,
+    storeCode: order.store.code,
+    refundedAt: order.refundedAt,
+    items: order.items
+      .map((item) => {
+        const quantityRestocked = restockedQuantityBySku.get(item.skuId) ?? 0;
+        const restockableQuantity = item.quantity - quantityRestocked;
+
+        return {
+          orderItemId: item.id,
+          skuId: item.skuId,
+          skuName: item.skuNameSnapshot,
+          barcode: item.barcodeSnapshot,
+          orderedQuantity: item.quantity,
+          quantityRestocked,
+          restockableQuantity,
+        };
+      })
+      .filter((item) => item.restockableQuantity > 0),
   };
 }

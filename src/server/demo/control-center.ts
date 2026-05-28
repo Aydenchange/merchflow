@@ -19,6 +19,11 @@ import {
   type RefundRepository,
 } from "../refunds/service";
 import {
+  recordReturnRestock,
+  type ReturnRestockRepository,
+  type ReturnRestockResult,
+} from "../returns/service";
+import {
   resolveDemoUserId,
   type DemoActionResult,
   type DemoRole,
@@ -99,10 +104,36 @@ export type ControlCenterInventoryOption = {
   lowStockThreshold: number;
 };
 
+export type ControlCenterReturnRestockCandidate = {
+  orderId: string;
+  organizationId: string;
+  storeId: string;
+  storeName: string;
+  storeCode: string;
+  refundedAt: Date | null;
+  items: Array<{
+    orderItemId: string;
+    skuId: string;
+    skuName: string;
+    barcode: string;
+    orderedQuantity: number;
+    quantityRestocked: number;
+    restockableQuantity: number;
+  }>;
+};
+
+export type SerializableControlCenterReturnRestockCandidate = Omit<
+  ControlCenterReturnRestockCandidate,
+  "refundedAt"
+> & {
+  refundedAt: string | null;
+};
+
 export type DemoControlCenter = {
   role: DemoRole;
   orders: SerializableControlCenterOrder[];
   inventoryOptions: ControlCenterInventoryOption[];
+  returnRestockCandidates: SerializableControlCenterReturnRestockCandidate[];
 };
 
 export type LoadDemoControlCenterInput = {
@@ -129,6 +160,16 @@ export type AdjustDemoStockInput = {
   note: string;
 };
 
+export type RestockDemoReturnInput = {
+  role: DemoRole;
+  orderId: string;
+  items: Array<{
+    skuId: string;
+    quantity: number;
+  }>;
+  note: string;
+};
+
 export type SerializableOrderLifecycleResult = Omit<
   OrderLifecycleResult,
   "cancelledAt" | "fulfilledAt"
@@ -144,6 +185,13 @@ export type SerializableRecordedRefundResult = Omit<
   refundedAt: string;
 };
 
+export type SerializableReturnRestockResult = Omit<
+  ReturnRestockResult,
+  "restockedAt"
+> & {
+  restockedAt: string;
+};
+
 export type DemoControlCenterRepository = {
   listRecentOrders(input: Required<ControlCenterQuery>): Promise<
     ControlCenterOrder[]
@@ -151,6 +199,9 @@ export type DemoControlCenterRepository = {
   listInventoryOptions(
     input: Omit<ControlCenterQuery, "limit">,
   ): Promise<ControlCenterInventoryOption[]>;
+  listReturnRestockCandidates(
+    input: Omit<ControlCenterQuery, "limit">,
+  ): Promise<ControlCenterReturnRestockCandidate[]>;
 };
 
 export async function loadDemoControlCenter(
@@ -166,12 +217,14 @@ export async function loadDemoControlCenter(
       organizationId: context.organizationId,
       storeScope: getAccessibleStoreScope(context),
     };
-    const [orders, inventoryOptions] = await Promise.all([
+    const [orders, inventoryOptions, returnRestockCandidates] =
+      await Promise.all([
       dependencies.controlRepository.listRecentOrders({
         ...query,
         limit: input.orderLimit ?? DEFAULT_ORDER_LIMIT,
       }),
       dependencies.controlRepository.listInventoryOptions(query),
+      dependencies.controlRepository.listReturnRestockCandidates(query),
     ]);
 
     return {
@@ -180,6 +233,9 @@ export async function loadDemoControlCenter(
         role: input.role,
         orders: orders.map(serializeControlOrder),
         inventoryOptions,
+        returnRestockCandidates: returnRestockCandidates.map(
+          serializeReturnRestockCandidate,
+        ),
       },
     };
   } catch (error) {
@@ -273,6 +329,36 @@ export async function adjustDemoStock(
   }
 }
 
+export async function restockDemoReturn(
+  input: RestockDemoReturnInput,
+  dependencies: {
+    authRepository: AuthContextRepository;
+    returnRestockRepository: ReturnRestockRepository;
+    now?: () => Date;
+  },
+): Promise<DemoActionResult<SerializableReturnRestockResult>> {
+  try {
+    const context = await loadDemoAuthContext(input.role, dependencies);
+    const result = await recordReturnRestock(
+      context,
+      {
+        orderId: input.orderId,
+        items: input.items,
+        note: input.note,
+        restockedAt: dependencies.now?.() ?? new Date(),
+      },
+      dependencies.returnRestockRepository,
+    );
+
+    return {
+      ok: true,
+      data: serializeReturnRestockResult(result),
+    };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
 async function loadDemoAuthContext(
   role: DemoRole,
   dependencies: {
@@ -298,6 +384,15 @@ function serializeControlOrder(
   };
 }
 
+function serializeReturnRestockCandidate(
+  candidate: ControlCenterReturnRestockCandidate,
+): SerializableControlCenterReturnRestockCandidate {
+  return {
+    ...candidate,
+    refundedAt: toIsoOrNull(candidate.refundedAt),
+  };
+}
+
 function serializeLifecycleResult(
   result: OrderLifecycleResult,
 ): SerializableOrderLifecycleResult {
@@ -314,6 +409,15 @@ function serializeRefundResult(
   return {
     ...result,
     refundedAt: result.refundedAt.toISOString(),
+  };
+}
+
+function serializeReturnRestockResult(
+  result: ReturnRestockResult,
+): SerializableReturnRestockResult {
+  return {
+    ...result,
+    restockedAt: result.restockedAt.toISOString(),
   };
 }
 

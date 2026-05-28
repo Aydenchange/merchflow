@@ -17,6 +17,7 @@ import {
   type FulfillDemoOrderInput,
   type LoadDemoControlCenterInput,
   type RefundDemoOrderInput,
+  type RestockDemoReturnInput,
 } from "./control-action-handlers";
 import {
   createAuditActionHandlers,
@@ -82,6 +83,10 @@ export async function refundOrderAction(input: RefundDemoOrderInput) {
 
 export async function adjustStockAction(input: AdjustDemoStockInput) {
   return controlHandlers.adjustStockAction(input);
+}
+
+export async function restockReturnAction(input: RestockDemoReturnInput) {
+  return controlHandlers.restockReturnAction(input);
 }
 
 export async function loadAuditTrailAction(input: LoadDemoAuditTrailInput) {

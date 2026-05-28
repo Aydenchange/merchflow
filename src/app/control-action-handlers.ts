@@ -5,19 +5,27 @@ import {
   fulfillDemoOrder,
   loadDemoControlCenter,
   refundDemoOrder,
+  restockDemoReturn,
   type AdjustDemoStockInput,
   type FulfillDemoOrderInput,
   type LoadDemoControlCenterInput,
   type RefundDemoOrderInput,
+  type RestockDemoReturnInput,
 } from "../server/demo/control-center";
 import { createPrismaControlCenterRepository } from "../server/demo/control-prisma-repository";
 import { createPrismaInventoryRepository } from "../server/inventory/prisma-repository";
 import { createPrismaOrderLifecycleRepository } from "../server/orders/lifecycle-prisma-repository";
 import { createPrismaRefundRepository } from "../server/refunds/prisma-repository";
+import { createPrismaReturnRestockRepository } from "../server/returns/prisma-repository";
 
 type ControlDb = Pick<
   PrismaClient,
-  "$transaction" | "inventoryBalance" | "order" | "organizationMembership"
+  | "$transaction"
+  | "auditLog"
+  | "inventoryBalance"
+  | "order"
+  | "organizationMembership"
+  | "stockLedger"
 >;
 
 export type {
@@ -25,6 +33,7 @@ export type {
   FulfillDemoOrderInput,
   LoadDemoControlCenterInput,
   RefundDemoOrderInput,
+  RestockDemoReturnInput,
 };
 
 export type ControlWorkbench = {
@@ -32,6 +41,7 @@ export type ControlWorkbench = {
   fulfillDemoOrder: typeof fulfillDemoOrder;
   refundDemoOrder: typeof refundDemoOrder;
   adjustDemoStock: typeof adjustDemoStock;
+  restockDemoReturn: typeof restockDemoReturn;
 };
 
 type ControlActionRepositories = ReturnType<
@@ -50,6 +60,7 @@ const defaultWorkbench: ControlWorkbench = {
   fulfillDemoOrder,
   refundDemoOrder,
   adjustDemoStock,
+  restockDemoReturn,
 };
 
 export function createControlActionHandlers({
@@ -109,6 +120,20 @@ export function createControlActionHandlers({
 
       return result;
     },
+
+    async restockReturnAction(input: RestockDemoReturnInput) {
+      const repositories = createRepositories(getDb());
+      const result = await workbench.restockDemoReturn(input, {
+        authRepository: repositories.authRepository,
+        returnRestockRepository: repositories.returnRestockRepository,
+      });
+
+      if (result.ok) {
+        revalidatePath("/");
+      }
+
+      return result;
+    },
   };
 }
 
@@ -121,5 +146,6 @@ function createControlActionRepositories(db: unknown) {
     lifecycleRepository: createPrismaOrderLifecycleRepository(controlDb),
     refundRepository: createPrismaRefundRepository(controlDb),
     inventoryRepository: createPrismaInventoryRepository(controlDb),
+    returnRestockRepository: createPrismaReturnRestockRepository(controlDb),
   };
 }

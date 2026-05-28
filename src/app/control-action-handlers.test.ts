@@ -7,6 +7,7 @@ import type {
   LoadDemoControlCenterInput,
   SerializableOrderLifecycleResult,
   SerializableRecordedRefundResult,
+  SerializableReturnRestockResult,
 } from "../server/demo/control-center";
 import {
   createControlActionHandlers,
@@ -25,6 +26,7 @@ function controlCenter(): DemoControlCenter {
     role: "owner",
     orders: [],
     inventoryOptions: [],
+    returnRestockCandidates: [],
   };
 }
 
@@ -53,6 +55,23 @@ function refundResult(): SerializableRecordedRefundResult {
   };
 }
 
+function returnRestockResult(): SerializableReturnRestockResult {
+  return {
+    organizationId: "org_merchflow_demo",
+    orderId: "order_refunded",
+    storeId: "store_orchard",
+    restockedAt: "2026-05-28T11:00:00.000Z",
+    items: [
+      {
+        skuId: "sku_tshirt_black_m",
+        quantity: 1,
+        quantityOnHand: 16,
+        ledgerId: "ledger_return_1",
+      },
+    ],
+  };
+}
+
 function createWorkbench(overrides: Partial<ControlWorkbench> = {}) {
   return {
     loadDemoControlCenter: vi.fn(async () => ok(controlCenter())),
@@ -70,6 +89,7 @@ function createWorkbench(overrides: Partial<ControlWorkbench> = {}) {
         ledgerId: "ledger_1",
       }),
     ),
+    restockDemoReturn: vi.fn(async () => ok(returnRestockResult())),
     ...overrides,
   } satisfies ControlWorkbench;
 }
@@ -81,6 +101,7 @@ function repositories() {
     lifecycleRepository: "lifecycle_repo",
     refundRepository: "refund_repo",
     inventoryRepository: "inventory_repo",
+    returnRestockRepository: "return_restock_repo",
   };
 }
 
@@ -196,6 +217,38 @@ describe("createControlActionHandlers", () => {
       {
         authRepository: "auth_repo",
         inventoryRepository: "inventory_repo",
+      },
+    );
+    expect(revalidatePath).toHaveBeenCalledWith("/");
+  });
+
+  it("revalidates the app route after successful return restock", async () => {
+    const workbench = createWorkbench();
+    const revalidatePath = vi.fn();
+
+    const result = await createControlActionHandlers({
+      getDb: vi.fn(() => ({})),
+      revalidatePath,
+      workbench,
+      createRepositories: vi.fn(repositories),
+    }).restockReturnAction({
+      role: "manager",
+      orderId: "order_refunded",
+      items: [{ skuId: "sku_tshirt_black_m", quantity: 1 }],
+      note: "Item inspected",
+    });
+
+    expect(result).toEqual(ok(returnRestockResult()));
+    expect(workbench.restockDemoReturn).toHaveBeenCalledWith(
+      {
+        role: "manager",
+        orderId: "order_refunded",
+        items: [{ skuId: "sku_tshirt_black_m", quantity: 1 }],
+        note: "Item inspected",
+      },
+      {
+        authRepository: "auth_repo",
+        returnRestockRepository: "return_restock_repo",
       },
     );
     expect(revalidatePath).toHaveBeenCalledWith("/");

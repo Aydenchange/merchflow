@@ -17,14 +17,22 @@ import type {
   RefundableOrderRecord,
   RefundRepository,
 } from "../refunds/service";
+import type {
+  ApplyReturnRestockInput,
+  ReturnRestockOrderRecord,
+  ReturnRestockRepository,
+  ReturnRestockResult,
+} from "../returns/service";
 import {
   adjustDemoStock,
   fulfillDemoOrder,
   loadDemoControlCenter,
   refundDemoOrder,
+  restockDemoReturn,
   type ControlCenterInventoryOption,
   type ControlCenterOrder,
   type ControlCenterQuery,
+  type ControlCenterReturnRestockCandidate,
   type DemoControlCenterRepository,
 } from "./control-center";
 
@@ -92,9 +100,35 @@ function inventoryOption(
   };
 }
 
+function returnRestockCandidate(
+  overrides: Partial<ControlCenterReturnRestockCandidate> = {},
+): ControlCenterReturnRestockCandidate {
+  return {
+    orderId: "order_refunded",
+    organizationId: "org_merchflow_demo",
+    storeId: "store_orchard",
+    storeName: "Orchard Central",
+    storeCode: "ORCHARD",
+    refundedAt: new Date("2026-05-28T10:00:00.000Z"),
+    items: [
+      {
+        orderItemId: "item_1",
+        skuId: "sku_tshirt_black_m",
+        skuName: "Classic T-Shirt / Black / M",
+        barcode: "9555000000012",
+        orderedQuantity: 2,
+        quantityRestocked: 1,
+        restockableQuantity: 1,
+      },
+    ],
+    ...overrides,
+  };
+}
+
 function controlRepository(calls: {
   recentOrders: ControlCenterQuery[];
   inventoryOptions: ControlCenterQuery[];
+  returnRestockCandidates: ControlCenterQuery[];
 }): DemoControlCenterRepository {
   return {
     async listRecentOrders(input) {
@@ -104,6 +138,10 @@ function controlRepository(calls: {
     async listInventoryOptions(input) {
       calls.inventoryOptions.push(input);
       return [inventoryOption()];
+    },
+    async listReturnRestockCandidates(input) {
+      calls.returnRestockCandidates.push(input);
+      return [returnRestockCandidate()];
     },
   };
 }
@@ -191,11 +229,57 @@ function inventoryRepository(
   };
 }
 
+function returnRestockRepository(
+  calls: ApplyReturnRestockInput[],
+): ReturnRestockRepository {
+  return {
+    async findOrderForReturnRestock() {
+      return {
+        id: "order_refunded",
+        organizationId: "org_merchflow_demo",
+        storeId: "store_orchard",
+        status: "REFUNDED",
+        items: [
+          {
+            orderItemId: "item_1",
+            skuId: "sku_tshirt_black_m",
+            skuName: "Classic T-Shirt / Black / M",
+            barcode: "9555000000012",
+            orderedQuantity: 2,
+          },
+        ],
+        restockedQuantities: [
+          {
+            skuId: "sku_tshirt_black_m",
+            quantityRestocked: 1,
+          },
+        ],
+      } satisfies ReturnRestockOrderRecord;
+    },
+    async applyReturnRestock(input) {
+      calls.push(input);
+      return {
+        organizationId: input.organizationId,
+        orderId: input.orderId,
+        storeId: input.storeId,
+        restockedAt: input.restockedAt,
+        items: input.items.map((item) => ({
+          skuId: item.skuId,
+          quantity: item.quantity,
+          quantityOnHand: 16,
+          ledgerId: "ledger_return_1",
+        })),
+      } satisfies ReturnRestockResult;
+    },
+  };
+}
+
 describe("demo control center", () => {
   it("loads manager recent orders and inventory options with assigned-store scope", async () => {
     const calls = {
       recentOrders: [] as ControlCenterQuery[],
       inventoryOptions: [] as ControlCenterQuery[],
+      returnRestockCandidates: [] as ControlCenterQuery[],
     };
 
     const result = await loadDemoControlCenter(
@@ -233,6 +317,13 @@ describe("demo control center", () => {
         storeIds: ["store_orchard"],
       },
     });
+    expect(calls.returnRestockCandidates[0]).toEqual({
+      organizationId: "org_merchflow_demo",
+      storeScope: {
+        allStores: false,
+        storeIds: ["store_orchard"],
+      },
+    });
     expect(result).toEqual({
       ok: true,
       data: {
@@ -248,6 +339,12 @@ describe("demo control center", () => {
           },
         ],
         inventoryOptions: [inventoryOption()],
+        returnRestockCandidates: [
+          {
+            ...returnRestockCandidate(),
+            refundedAt: "2026-05-28T10:00:00.000Z",
+          },
+        ],
       },
     });
   });
@@ -369,6 +466,60 @@ describe("demo control center", () => {
         lowStockThreshold: 5,
         reason: "ADJUSTMENT_IN",
         ledgerId: "ledger_1",
+      },
+    });
+  });
+
+  it("allows manager to restock a refunded return in an assigned store", async () => {
+    const calls: ApplyReturnRestockInput[] = [];
+
+    const result = await restockDemoReturn(
+      {
+        role: "manager",
+        orderId: "order_refunded",
+        items: [{ skuId: "sku_tshirt_black_m", quantity: 1 }],
+        note: " Item inspected ",
+      },
+      {
+        authRepository: authRepository(
+          membershipRecord({
+            userId: "user_manager",
+            membershipId: "membership_manager",
+            role: "MANAGER",
+            storeAssignments: [{ storeId: "store_orchard" }],
+          }),
+        ),
+        returnRestockRepository: returnRestockRepository(calls),
+        now: () => new Date("2026-05-28T11:00:00.000Z"),
+      },
+    );
+
+    expect(calls).toEqual([
+      {
+        organizationId: "org_merchflow_demo",
+        orderId: "order_refunded",
+        storeId: "store_orchard",
+        actorMembershipId: "membership_manager",
+        note: "Item inspected",
+        restockedAt: new Date("2026-05-28T11:00:00.000Z"),
+        items: [{ skuId: "sku_tshirt_black_m", quantity: 1 }],
+      },
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        organizationId: "org_merchflow_demo",
+        orderId: "order_refunded",
+        storeId: "store_orchard",
+        restockedAt: "2026-05-28T11:00:00.000Z",
+        items: [
+          {
+            skuId: "sku_tshirt_black_m",
+            quantity: 1,
+            quantityOnHand: 16,
+            ledgerId: "ledger_return_1",
+          },
+        ],
       },
     });
   });
