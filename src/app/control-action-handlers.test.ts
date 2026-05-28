@@ -41,6 +41,17 @@ function fulfilledResult(): SerializableOrderLifecycleResult {
   };
 }
 
+function cancelledResult(): SerializableOrderLifecycleResult {
+  return {
+    orderId: "order_pending",
+    organizationId: "org_merchflow_demo",
+    storeId: "store_orchard",
+    status: "CANCELLED",
+    cancelledAt: "2026-05-28T09:30:00.000Z",
+    fulfilledAt: null,
+  };
+}
+
 function refundResult(): SerializableRecordedRefundResult {
   return {
     orderId: "order_1",
@@ -76,6 +87,7 @@ function createWorkbench(overrides: Partial<ControlWorkbench> = {}) {
   return {
     loadDemoControlCenter: vi.fn(async () => ok(controlCenter())),
     fulfillDemoOrder: vi.fn(async () => ok(fulfilledResult())),
+    cancelDemoOrder: vi.fn(async () => ok(cancelledResult())),
     refundDemoOrder: vi.fn(async () => ok(refundResult())),
     adjustDemoStock: vi.fn(async () =>
       ok({
@@ -152,6 +164,36 @@ describe("createControlActionHandlers", () => {
       {
         role: "staff",
         orderId: "order_1",
+      },
+      {
+        authRepository: "auth_repo",
+        lifecycleRepository: "lifecycle_repo",
+      },
+    );
+    expect(revalidatePath).toHaveBeenCalledWith("/");
+  });
+
+  it("revalidates the app route after successful order cancellation", async () => {
+    const workbench = createWorkbench();
+    const revalidatePath = vi.fn();
+
+    const result = await createControlActionHandlers({
+      getDb: vi.fn(() => ({})),
+      revalidatePath,
+      workbench,
+      createRepositories: vi.fn(repositories),
+    }).cancelOrderAction({
+      role: "staff",
+      orderId: "order_pending",
+      reason: "Customer walked away",
+    });
+
+    expect(result).toEqual(ok(cancelledResult()));
+    expect(workbench.cancelDemoOrder).toHaveBeenCalledWith(
+      {
+        role: "staff",
+        orderId: "order_pending",
+        reason: "Customer walked away",
       },
       {
         authRepository: "auth_repo",

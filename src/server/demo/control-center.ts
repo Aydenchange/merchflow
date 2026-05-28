@@ -9,6 +9,7 @@ import {
   type StockAdjustmentResult,
 } from "../inventory/service";
 import {
+  cancelPendingOrder,
   fulfillPaidOrder,
   type OrderLifecycleRepository,
   type OrderLifecycleResult,
@@ -146,6 +147,12 @@ export type FulfillDemoOrderInput = {
   orderId: string;
 };
 
+export type CancelDemoOrderInput = {
+  role: DemoRole;
+  orderId: string;
+  reason?: string;
+};
+
 export type RefundDemoOrderInput = {
   role: DemoRole;
   orderId: string;
@@ -258,6 +265,35 @@ export async function fulfillDemoOrder(
       {
         orderId: input.orderId,
         fulfilledAt: dependencies.now?.() ?? new Date(),
+      },
+      dependencies.lifecycleRepository,
+    );
+
+    return {
+      ok: true,
+      data: serializeLifecycleResult(result),
+    };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function cancelDemoOrder(
+  input: CancelDemoOrderInput,
+  dependencies: {
+    authRepository: AuthContextRepository;
+    lifecycleRepository: OrderLifecycleRepository;
+    now?: () => Date;
+  },
+): Promise<DemoActionResult<SerializableOrderLifecycleResult>> {
+  try {
+    const context = await loadDemoAuthContext(input.role, dependencies);
+    const result = await cancelPendingOrder(
+      context,
+      {
+        orderId: input.orderId,
+        reason: input.reason,
+        cancelledAt: dependencies.now?.() ?? new Date(),
       },
       dependencies.lifecycleRepository,
     );

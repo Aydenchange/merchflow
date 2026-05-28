@@ -25,6 +25,7 @@ import type {
 } from "../returns/service";
 import {
   adjustDemoStock,
+  cancelDemoOrder,
   fulfillDemoOrder,
   loadDemoControlCenter,
   refundDemoOrder,
@@ -148,18 +149,27 @@ function controlRepository(calls: {
 
 function lifecycleRepository(
   calls: OrderLifecycleTransitionInput[],
+  order: OrderLifecycleRecord = {
+    id: "order_1",
+    organizationId: "org_merchflow_demo",
+    storeId: "store_orchard",
+    status: "PAID",
+  },
 ): OrderLifecycleRepository {
   return {
     async findOrderForLifecycle() {
-      return {
-        id: "order_1",
-        organizationId: "org_merchflow_demo",
-        storeId: "store_orchard",
-        status: "PAID",
-      } satisfies OrderLifecycleRecord;
+      return order;
     },
-    async cancelPendingOrder() {
-      throw new Error("Not used by this test");
+    async cancelPendingOrder(input) {
+      calls.push(input);
+      return {
+        orderId: input.orderId,
+        organizationId: input.organizationId,
+        storeId: input.storeId,
+        status: "CANCELLED",
+        cancelledAt: input.transitionedAt,
+        fulfilledAt: null,
+      } satisfies OrderLifecycleResult;
     },
     async fulfillPaidOrder(input) {
       calls.push(input);
@@ -389,6 +399,57 @@ describe("demo control center", () => {
         status: "FULFILLED",
         cancelledAt: null,
         fulfilledAt: "2026-05-28T09:00:00.000Z",
+      },
+    });
+  });
+
+  it("allows staff to cancel a pending payment order in an assigned store", async () => {
+    const calls: OrderLifecycleTransitionInput[] = [];
+
+    const result = await cancelDemoOrder(
+      {
+        role: "staff",
+        orderId: "order_pending",
+        reason: " Customer walked away ",
+      },
+      {
+        authRepository: authRepository(
+          membershipRecord({
+            userId: "user_staff",
+            membershipId: "membership_staff",
+            role: "STAFF",
+            storeAssignments: [{ storeId: "store_orchard" }],
+          }),
+        ),
+        lifecycleRepository: lifecycleRepository(calls, {
+          id: "order_pending",
+          organizationId: "org_merchflow_demo",
+          storeId: "store_orchard",
+          status: "PENDING_PAYMENT",
+        }),
+        now: () => new Date("2026-05-28T09:30:00.000Z"),
+      },
+    );
+
+    expect(calls).toEqual([
+      {
+        organizationId: "org_merchflow_demo",
+        orderId: "order_pending",
+        storeId: "store_orchard",
+        actorMembershipId: "membership_staff",
+        transitionedAt: new Date("2026-05-28T09:30:00.000Z"),
+        reason: "Customer walked away",
+      },
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        orderId: "order_pending",
+        organizationId: "org_merchflow_demo",
+        storeId: "store_orchard",
+        status: "CANCELLED",
+        cancelledAt: "2026-05-28T09:30:00.000Z",
+        fulfilledAt: null,
       },
     });
   });

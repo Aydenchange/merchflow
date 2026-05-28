@@ -2,11 +2,13 @@ import type { PrismaClient } from "@prisma/client";
 import { createPrismaAuthContextRepository } from "../server/authz/prisma-repository";
 import {
   adjustDemoStock,
+  cancelDemoOrder,
   fulfillDemoOrder,
   loadDemoControlCenter,
   refundDemoOrder,
   restockDemoReturn,
   type AdjustDemoStockInput,
+  type CancelDemoOrderInput,
   type FulfillDemoOrderInput,
   type LoadDemoControlCenterInput,
   type RefundDemoOrderInput,
@@ -30,6 +32,7 @@ type ControlDb = Pick<
 
 export type {
   AdjustDemoStockInput,
+  CancelDemoOrderInput,
   FulfillDemoOrderInput,
   LoadDemoControlCenterInput,
   RefundDemoOrderInput,
@@ -39,6 +42,7 @@ export type {
 export type ControlWorkbench = {
   loadDemoControlCenter: typeof loadDemoControlCenter;
   fulfillDemoOrder: typeof fulfillDemoOrder;
+  cancelDemoOrder: typeof cancelDemoOrder;
   refundDemoOrder: typeof refundDemoOrder;
   adjustDemoStock: typeof adjustDemoStock;
   restockDemoReturn: typeof restockDemoReturn;
@@ -58,6 +62,7 @@ type ControlActionHandlerDependencies = {
 const defaultWorkbench: ControlWorkbench = {
   loadDemoControlCenter,
   fulfillDemoOrder,
+  cancelDemoOrder,
   refundDemoOrder,
   adjustDemoStock,
   restockDemoReturn,
@@ -82,6 +87,20 @@ export function createControlActionHandlers({
     async fulfillOrderAction(input: FulfillDemoOrderInput) {
       const repositories = createRepositories(getDb());
       const result = await workbench.fulfillDemoOrder(input, {
+        authRepository: repositories.authRepository,
+        lifecycleRepository: repositories.lifecycleRepository,
+      });
+
+      if (result.ok) {
+        revalidatePath("/");
+      }
+
+      return result;
+    },
+
+    async cancelOrderAction(input: CancelDemoOrderInput) {
+      const repositories = createRepositories(getDb());
+      const result = await workbench.cancelDemoOrder(input, {
         authRepository: repositories.authRepository,
         lifecycleRepository: repositories.lifecycleRepository,
       });

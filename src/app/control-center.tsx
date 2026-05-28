@@ -3,6 +3,7 @@
 import { FormEvent, useState, useTransition } from "react";
 import {
   adjustStockAction,
+  cancelOrderAction,
   fulfillOrderAction,
   loadControlCenterAction,
   refundOrderAction,
@@ -39,6 +40,7 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
   const [controlResult, setControlResult] =
     useState<DemoActionResult<DemoControlCenter> | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
   const [refundReason, setRefundReason] = useState("");
   const [adjustStoreId, setAdjustStoreId] = useState(
     selectedStoreId || context.selectedStoreId || context.stores[0]?.id || "",
@@ -63,6 +65,8 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
     control?.returnRestockCandidates ?? EMPTY_RETURN_RESTOCK_CANDIDATES;
   const selectedOrder =
     orders.find((order) => order.id === selectedOrderId) ?? null;
+  const selectedCancelableOrder =
+    selectedOrder && canCancelOrder(selectedOrder) ? selectedOrder : null;
   const selectedRefundOrder =
     selectedOrder && canRefundOrder(selectedOrder) ? selectedOrder : null;
   const storeOptions = buildStoreOptions(inventoryOptions, context);
@@ -102,7 +106,7 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
 
     if (result.ok) {
       const nextOrder = result.data.orders.find((order) =>
-        canFulfillOrder(order) || canRefundOrder(order),
+        canCancelOrder(order) || canFulfillOrder(order) || canRefundOrder(order),
       );
       const nextStoreId =
         adjustStoreId ||
@@ -174,6 +178,36 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
         "success",
         "Order fulfilled",
         `${result.data.orderId} at ${formatDateTime(result.data.fulfilledAt)}`,
+      );
+      await refreshControlCenter();
+    });
+  }
+
+  function handleCancel(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedCancelableOrder) {
+      pushEvent("warning", "Cancel order required", "Select a pending payment order");
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await cancelOrderAction({
+        role: context.role,
+        orderId: selectedCancelableOrder.id,
+        reason: cancelReason,
+      });
+
+      if (!result.ok) {
+        pushEvent("error", "Cancellation rejected", result.message);
+        return;
+      }
+
+      setCancelReason("");
+      pushEvent(
+        "success",
+        "Order cancelled",
+        `${result.data.orderId} at ${formatDateTime(result.data.cancelledAt)}`,
       );
       await refreshControlCenter();
     });
@@ -403,6 +437,14 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-2">
                           <button
+                            className="h-9 rounded-md bg-amber-700 px-3 text-xs font-semibold text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:bg-stone-300"
+                            type="button"
+                            disabled={isPending || !canCancelOrder(order)}
+                            onClick={() => setSelectedOrderId(order.id)}
+                          >
+                            Cancel
+                          </button>
+                          <button
                             className="h-9 rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-stone-300"
                             type="button"
                             disabled={isPending || !canFulfillOrder(order)}
@@ -433,6 +475,54 @@ export function ControlCenter({ context, selectedStoreId }: ControlCenterProps) 
         </section>
 
         <aside className="grid content-start gap-5">
+          <form
+            className="rounded-md border border-stone-200 bg-white p-4 shadow-sm"
+            onSubmit={handleCancel}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-semibold">Cancel unpaid order</h3>
+              <StatusBadge value={selectedOrder?.status ?? "NO_ORDER"} />
+            </div>
+
+            <dl className="mt-4 grid gap-3 text-sm">
+              <InfoRow
+                label="Order"
+                value={selectedCancelableOrder?.id ?? "Select pending"}
+                mono
+              />
+              <InfoRow
+                label="Amount"
+                value={
+                  selectedCancelableOrder
+                    ? formatMoney(
+                        selectedCancelableOrder.totalAmount,
+                        selectedCancelableOrder.currency,
+                      )
+                    : formatMoney(0, context.organization.currency)
+                }
+                mono
+              />
+            </dl>
+
+            <label className="mt-4 grid gap-1 text-sm font-medium text-stone-700">
+              Reason
+              <input
+                className="h-10 rounded-md border border-stone-300 bg-white px-3 text-sm text-stone-950 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                value={cancelReason}
+                disabled={isPending}
+                onChange={(event) => setCancelReason(event.target.value)}
+              />
+            </label>
+
+            <button
+              className="mt-4 h-10 w-full rounded-md bg-amber-700 px-4 text-sm font-semibold text-white transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:bg-stone-300"
+              type="submit"
+              disabled={isPending || !selectedCancelableOrder}
+            >
+              Cancel order
+            </button>
+          </form>
+
           <form
             className="rounded-md border border-stone-200 bg-white p-4 shadow-sm"
             onSubmit={handleRefund}
@@ -735,6 +825,10 @@ function buildStoreOptions(
 
 function canFulfillOrder(order: SerializableControlCenterOrder) {
   return order.status === "PAID";
+}
+
+function canCancelOrder(order: SerializableControlCenterOrder) {
+  return order.status === "PENDING_PAYMENT";
 }
 
 function canRefundOrder(order: SerializableControlCenterOrder) {

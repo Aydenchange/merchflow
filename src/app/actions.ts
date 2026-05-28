@@ -14,6 +14,7 @@ import {
 import {
   createControlActionHandlers,
   type AdjustDemoStockInput,
+  type CancelDemoOrderInput,
   type FulfillDemoOrderInput,
   type LoadDemoControlCenterInput,
   type RefundDemoOrderInput,
@@ -75,6 +76,10 @@ export async function loadControlCenterAction(
 
 export async function fulfillOrderAction(input: FulfillDemoOrderInput) {
   return controlHandlers.fulfillOrderAction(input);
+}
+
+export async function cancelOrderAction(input: CancelDemoOrderInput) {
+  return controlHandlers.cancelOrderAction(input);
 }
 
 export async function refundOrderAction(input: RefundDemoOrderInput) {
