@@ -8,27 +8,41 @@ import {
   type PosOrderActionInput,
   type SimulatePaymentSuccessActionInput,
 } from "./pos-action-handlers";
+import {
+  createOperationsActionHandlers,
+} from "./operations-action-handlers";
 import type { DemoRole } from "../server/demo/workbench";
+import type { LoadDemoOperationsDashboardInput } from "../server/demo/operations";
 
-const handlers = createPosActionHandlers({
+const posHandlers = createPosActionHandlers({
+  getDb,
+  revalidatePath,
+});
+const operationsHandlers = createOperationsActionHandlers({
   getDb,
   revalidatePath,
 });
 
 export async function loadDemoContextAction(role: DemoRole) {
-  return handlers.loadDemoContextAction(role);
+  return posHandlers.loadDemoContextAction(role);
 }
 
 export async function lookupSkuAction(input: LookupSkuActionInput) {
-  return handlers.lookupSkuAction(input);
+  return posHandlers.lookupSkuAction(input);
 }
 
 export async function createPosOrderAction(input: PosOrderActionInput) {
-  return handlers.createPosOrderAction(input);
+  return posHandlers.createPosOrderAction(input);
 }
 
 export async function simulatePaymentSuccessAction(
   input: SimulatePaymentSuccessActionInput,
 ) {
-  return handlers.simulatePaymentSuccessAction(input);
+  return posHandlers.simulatePaymentSuccessAction(input);
+}
+
+export async function loadOperationsDashboardAction(
+  input: LoadDemoOperationsDashboardInput,
+) {
+  return operationsHandlers.loadOperationsDashboardAction(input);
 }
