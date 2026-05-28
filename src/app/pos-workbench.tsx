@@ -7,6 +7,7 @@ import {
   lookupSkuAction,
   simulatePaymentSuccessAction,
 } from "./actions";
+import { OperationsDashboard } from "./operations-dashboard";
 import {
   addScannedSkuToCart,
   buildOrderItemsFromCart,
@@ -36,6 +37,8 @@ type WorkbenchEvent = {
   detail: string;
 };
 
+type AppView = "pos" | "operations";
+
 const roleOptions: Array<{ value: DemoRole; label: string }> = [
   { value: "owner", label: "Owner" },
   { value: "manager", label: "Manager" },
@@ -56,6 +59,7 @@ export function PosWorkbench({ initialContext }: PosWorkbenchProps) {
     useState<DemoPaymentSuccessView | null>(null);
   const [providerEventId, setProviderEventId] = useState("");
   const [events, setEvents] = useState<WorkbenchEvent[]>([]);
+  const [activeView, setActiveView] = useState<AppView>("pos");
   const [isPending, startTransition] = useTransition();
 
   const context = contextResult.ok ? contextResult.data : null;
@@ -292,6 +296,36 @@ export function PosWorkbench({ initialContext }: PosWorkbenchProps) {
         </div>
       </header>
 
+      <div className="border-b border-stone-200 bg-white">
+        <nav className="mx-auto flex max-w-7xl gap-2 px-4 py-3 sm:px-6 lg:px-8">
+          <button
+            className={`h-9 rounded-md px-4 text-sm font-semibold transition ${
+              activeView === "pos"
+                ? "bg-stone-950 text-white"
+                : "border border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
+            }`}
+            type="button"
+            onClick={() => setActiveView("pos")}
+          >
+            POS
+          </button>
+          <button
+            className={`h-9 rounded-md px-4 text-sm font-semibold transition ${
+              activeView === "operations"
+                ? "bg-stone-950 text-white"
+                : "border border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
+            }`}
+            type="button"
+            onClick={() => setActiveView("operations")}
+          >
+            Operations
+          </button>
+        </nav>
+      </div>
+
+      {activeView === "operations" ? (
+        <OperationsDashboard context={currentContext} />
+      ) : (
       <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_400px] lg:px-8">
         <section className="grid gap-5">
           <div className="rounded-md border border-stone-200 bg-white p-4 shadow-sm">
@@ -607,6 +641,7 @@ export function PosWorkbench({ initialContext }: PosWorkbenchProps) {
           </section>
         </aside>
       </div>
+      )}
     </main>
   );
 }

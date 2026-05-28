@@ -32,7 +32,6 @@ const defaultWorkbench: OperationsWorkbench = {
 
 export function createOperationsActionHandlers({
   getDb,
-  revalidatePath: _revalidatePath,
   workbench = defaultWorkbench,
   createRepositories = createOperationsActionRepositories,
 }: OperationsActionHandlerDependencies) {
