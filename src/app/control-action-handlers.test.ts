@@ -1,0 +1,203 @@
+import { describe, expect, it, vi } from "vitest";
+import type {
+  DemoActionResult,
+} from "../server/demo/workbench";
+import type {
+  DemoControlCenter,
+  LoadDemoControlCenterInput,
+  SerializableOrderLifecycleResult,
+  SerializableRecordedRefundResult,
+} from "../server/demo/control-center";
+import {
+  createControlActionHandlers,
+  type ControlWorkbench,
+} from "./control-action-handlers";
+
+function ok<T>(data: T): DemoActionResult<T> {
+  return {
+    ok: true,
+    data,
+  };
+}
+
+function controlCenter(): DemoControlCenter {
+  return {
+    role: "owner",
+    orders: [],
+    inventoryOptions: [],
+  };
+}
+
+function fulfilledResult(): SerializableOrderLifecycleResult {
+  return {
+    orderId: "order_1",
+    organizationId: "org_merchflow_demo",
+    storeId: "store_orchard",
+    status: "FULFILLED",
+    cancelledAt: null,
+    fulfilledAt: "2026-05-28T09:00:00.000Z",
+  };
+}
+
+function refundResult(): SerializableRecordedRefundResult {
+  return {
+    orderId: "order_1",
+    paymentId: "payment_1",
+    organizationId: "org_merchflow_demo",
+    storeId: "store_orchard",
+    orderStatus: "REFUNDED",
+    paymentStatus: "REFUNDED",
+    refundAmount: 1299,
+    currency: "SGD",
+    refundedAt: "2026-05-28T10:00:00.000Z",
+  };
+}
+
+function createWorkbench(overrides: Partial<ControlWorkbench> = {}) {
+  return {
+    loadDemoControlCenter: vi.fn(async () => ok(controlCenter())),
+    fulfillDemoOrder: vi.fn(async () => ok(fulfilledResult())),
+    refundDemoOrder: vi.fn(async () => ok(refundResult())),
+    adjustDemoStock: vi.fn(async () =>
+      ok({
+        organizationId: "org_merchflow_demo",
+        storeId: "store_orchard",
+        skuId: "sku_tshirt_black_m",
+        quantityDelta: 3,
+        quantityOnHand: 27,
+        lowStockThreshold: 5,
+        reason: "ADJUSTMENT_IN",
+        ledgerId: "ledger_1",
+      }),
+    ),
+    ...overrides,
+  } satisfies ControlWorkbench;
+}
+
+function repositories() {
+  return {
+    authRepository: "auth_repo",
+    controlRepository: "control_repo",
+    lifecycleRepository: "lifecycle_repo",
+    refundRepository: "refund_repo",
+    inventoryRepository: "inventory_repo",
+  };
+}
+
+describe("createControlActionHandlers", () => {
+  it("loads the control center through auth and read-model repositories without revalidating", async () => {
+    const input: LoadDemoControlCenterInput = {
+      role: "manager",
+      orderLimit: 5,
+    };
+    const workbench = createWorkbench();
+    const getDb = vi.fn(() => ({ db: true }));
+    const revalidatePath = vi.fn();
+    const createRepositories = vi.fn(repositories);
+
+    const result = await createControlActionHandlers({
+      getDb,
+      revalidatePath,
+      workbench,
+      createRepositories,
+    }).loadControlCenterAction(input);
+
+    expect(result).toEqual(ok(controlCenter()));
+    expect(getDb).toHaveBeenCalledTimes(1);
+    expect(createRepositories).toHaveBeenCalledWith({ db: true });
+    expect(workbench.loadDemoControlCenter).toHaveBeenCalledWith(input, {
+      authRepository: "auth_repo",
+      controlRepository: "control_repo",
+    });
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("revalidates the app route after successful order fulfillment", async () => {
+    const workbench = createWorkbench();
+    const revalidatePath = vi.fn();
+
+    const result = await createControlActionHandlers({
+      getDb: vi.fn(() => ({})),
+      revalidatePath,
+      workbench,
+      createRepositories: vi.fn(repositories),
+    }).fulfillOrderAction({
+      role: "staff",
+      orderId: "order_1",
+    });
+
+    expect(result).toEqual(ok(fulfilledResult()));
+    expect(workbench.fulfillDemoOrder).toHaveBeenCalledWith(
+      {
+        role: "staff",
+        orderId: "order_1",
+      },
+      {
+        authRepository: "auth_repo",
+        lifecycleRepository: "lifecycle_repo",
+      },
+    );
+    expect(revalidatePath).toHaveBeenCalledWith("/");
+  });
+
+  it("does not revalidate when refund is rejected", async () => {
+    const workbench = createWorkbench({
+      refundDemoOrder: vi.fn(async () => ({
+        ok: false,
+        message: "Role cannot record refund",
+      })),
+    });
+    const revalidatePath = vi.fn();
+
+    const result = await createControlActionHandlers({
+      getDb: vi.fn(() => ({})),
+      revalidatePath,
+      workbench,
+      createRepositories: vi.fn(repositories),
+    }).refundOrderAction({
+      role: "staff",
+      orderId: "order_1",
+      reason: "Customer request",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Role cannot record refund",
+    });
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("revalidates the app route after successful stock adjustment", async () => {
+    const workbench = createWorkbench();
+    const revalidatePath = vi.fn();
+
+    const result = await createControlActionHandlers({
+      getDb: vi.fn(() => ({})),
+      revalidatePath,
+      workbench,
+      createRepositories: vi.fn(repositories),
+    }).adjustStockAction({
+      role: "manager",
+      storeId: "store_orchard",
+      skuId: "sku_tshirt_black_m",
+      quantityDelta: 3,
+      note: "Supplier delivery",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(workbench.adjustDemoStock).toHaveBeenCalledWith(
+      {
+        role: "manager",
+        storeId: "store_orchard",
+        skuId: "sku_tshirt_black_m",
+        quantityDelta: 3,
+        note: "Supplier delivery",
+      },
+      {
+        authRepository: "auth_repo",
+        inventoryRepository: "inventory_repo",
+      },
+    );
+    expect(revalidatePath).toHaveBeenCalledWith("/");
+  });
+});

@@ -11,6 +11,13 @@ import {
 import {
   createOperationsActionHandlers,
 } from "./operations-action-handlers";
+import {
+  createControlActionHandlers,
+  type AdjustDemoStockInput,
+  type FulfillDemoOrderInput,
+  type LoadDemoControlCenterInput,
+  type RefundDemoOrderInput,
+} from "./control-action-handlers";
 import type { DemoRole } from "../server/demo/workbench";
 import type { LoadDemoOperationsDashboardInput } from "../server/demo/operations";
 
@@ -19,6 +26,10 @@ const posHandlers = createPosActionHandlers({
   revalidatePath,
 });
 const operationsHandlers = createOperationsActionHandlers({
+  getDb,
+  revalidatePath,
+});
+const controlHandlers = createControlActionHandlers({
   getDb,
   revalidatePath,
 });
@@ -45,4 +56,22 @@ export async function loadOperationsDashboardAction(
   input: LoadDemoOperationsDashboardInput,
 ) {
   return operationsHandlers.loadOperationsDashboardAction(input);
+}
+
+export async function loadControlCenterAction(
+  input: LoadDemoControlCenterInput,
+) {
+  return controlHandlers.loadControlCenterAction(input);
+}
+
+export async function fulfillOrderAction(input: FulfillDemoOrderInput) {
+  return controlHandlers.fulfillOrderAction(input);
+}
+
+export async function refundOrderAction(input: RefundDemoOrderInput) {
+  return controlHandlers.refundOrderAction(input);
+}
+
+export async function adjustStockAction(input: AdjustDemoStockInput) {
+  return controlHandlers.adjustStockAction(input);
 }

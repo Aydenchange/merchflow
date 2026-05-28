@@ -7,6 +7,7 @@ import {
   lookupSkuAction,
   simulatePaymentSuccessAction,
 } from "./actions";
+import { ControlCenter } from "./control-center";
 import { OperationsDashboard } from "./operations-dashboard";
 import {
   addScannedSkuToCart,
@@ -37,7 +38,7 @@ type WorkbenchEvent = {
   detail: string;
 };
 
-type AppView = "pos" | "operations";
+type AppView = "pos" | "operations" | "control";
 
 const roleOptions: Array<{ value: DemoRole; label: string }> = [
   { value: "owner", label: "Owner" },
@@ -320,11 +321,28 @@ export function PosWorkbench({ initialContext }: PosWorkbenchProps) {
           >
             Operations
           </button>
+          <button
+            className={`h-9 rounded-md px-4 text-sm font-semibold transition ${
+              activeView === "control"
+                ? "bg-stone-950 text-white"
+                : "border border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
+            }`}
+            type="button"
+            onClick={() => setActiveView("control")}
+          >
+            Control
+          </button>
         </nav>
       </div>
 
       {activeView === "operations" ? (
         <OperationsDashboard context={currentContext} />
+      ) : activeView === "control" ? (
+        <ControlCenter
+          key={`${currentContext.role}:${selectedStoreId}`}
+          context={currentContext}
+          selectedStoreId={selectedStoreId}
+        />
       ) : (
       <div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_400px] lg:px-8">
         <section className="grid gap-5">
