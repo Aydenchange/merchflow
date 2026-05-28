@@ -34,6 +34,7 @@ export function OperationsDashboard({ context }: OperationsDashboardProps) {
     : null;
   const currency = dashboard?.salesReport.currency ?? context.organization.currency;
   const lowStockCount = dashboard?.lowStockItems.length ?? 0;
+  const reorderCount = dashboard?.reorderSuggestions.length ?? 0;
   const topSku = dashboard?.salesReport.topSkus[0];
 
   function handlePresetChange(nextPreset: ReportPreset) {
@@ -131,7 +132,7 @@ export function OperationsDashboard({ context }: OperationsDashboardProps) {
           </button>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <MetricTile
             label="Gross sales"
             value={formatMoney(
@@ -151,6 +152,7 @@ export function OperationsDashboard({ context }: OperationsDashboardProps) {
             )}
           />
           <MetricTile label="Low-stock rows" value={`${lowStockCount}`} />
+          <MetricTile label="Reorder rows" value={`${reorderCount}`} />
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2 text-xs text-stone-500">
@@ -172,6 +174,81 @@ export function OperationsDashboard({ context }: OperationsDashboardProps) {
           <p className="mt-1">{dashboardError}</p>
         </section>
       ) : null}
+
+      <section className="rounded-md border border-stone-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-stone-200 px-4 py-3">
+          <h3 className="text-base font-semibold">Reorder plan</h3>
+          <span className="font-mono text-sm text-stone-500">
+            {reorderCount} rows
+          </span>
+        </div>
+
+        {!dashboard ? (
+          <EmptyState text="Refresh to load reorder suggestions" />
+        ) : dashboard.reorderSuggestions.length === 0 ? (
+          <EmptyState text="No reorder suggestions in this scope" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] border-collapse text-sm">
+              <thead className="bg-stone-50 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">
+                <tr>
+                  <th className="px-4 py-3">Store</th>
+                  <th className="px-4 py-3">SKU</th>
+                  <th className="px-4 py-3 text-right">Stock</th>
+                  <th className="px-4 py-3 text-right">Target</th>
+                  <th className="px-4 py-3 text-right">Reorder</th>
+                  <th className="px-4 py-3">Urgency</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dashboard.reorderSuggestions.map((item) => (
+                  <tr
+                    key={`${item.storeId}:${item.skuId}`}
+                    className="border-t border-stone-100"
+                  >
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-stone-950">
+                        {item.storeCode}
+                      </div>
+                      <div className="mt-1 text-xs text-stone-500">
+                        {item.storeName}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-stone-950">
+                        {item.skuName}
+                      </div>
+                      <div className="mt-1 font-mono text-xs text-stone-500">
+                        {item.barcode}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {item.quantityOnHand}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {item.targetQuantity}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="inline-flex min-w-14 justify-center rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 font-mono text-xs font-semibold text-emerald-800">
+                        +{item.suggestedReorderQuantity}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${urgencyClassName(
+                          item.urgency,
+                        )}`}
+                      >
+                        {formatUrgency(item.urgency)}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
         <section className="rounded-md border border-stone-200 bg-white shadow-sm">
@@ -315,4 +392,28 @@ function formatMoney(amount: number, currency: string) {
     style: "currency",
     currency,
   }).format(amount / 100);
+}
+
+function urgencyClassName(urgency: string) {
+  if (urgency === "OUT_OF_STOCK") {
+    return "border-red-200 bg-red-50 text-red-800";
+  }
+
+  if (urgency === "CRITICAL") {
+    return "border-amber-300 bg-amber-50 text-amber-800";
+  }
+
+  return "border-stone-200 bg-stone-50 text-stone-700";
+}
+
+function formatUrgency(urgency: string) {
+  if (urgency === "OUT_OF_STOCK") {
+    return "Out of stock";
+  }
+
+  if (urgency === "CRITICAL") {
+    return "Critical";
+  }
+
+  return "Low";
 }

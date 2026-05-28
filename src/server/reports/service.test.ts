@@ -4,10 +4,13 @@ import { InvalidReportInputError } from "./errors";
 import {
   getBasicSalesReport,
   listLowStockItems,
+  listReorderSuggestions,
   type BasicSalesReport,
   type LowStockItem,
   type LowStockReportQuery,
   type ReportsRepository,
+  type ReorderSuggestion,
+  type ReorderSuggestionQuery,
   type SalesReportQuery,
 } from "./service";
 
@@ -34,6 +37,26 @@ function lowStockItem(overrides: Partial<LowStockItem> = {}): LowStockItem {
     barcode: "9555000000012",
     quantityOnHand: 2,
     lowStockThreshold: 5,
+    ...overrides,
+  };
+}
+
+function reorderSuggestion(
+  overrides: Partial<ReorderSuggestion> = {},
+): ReorderSuggestion {
+  return {
+    organizationId: "org_1",
+    storeId: "store_1",
+    storeName: "Orchard Central",
+    storeCode: "SG-ORC",
+    skuId: "sku_1",
+    skuName: "Classic T-Shirt / Black / M",
+    barcode: "9555000000012",
+    quantityOnHand: 2,
+    lowStockThreshold: 5,
+    targetQuantity: 10,
+    suggestedReorderQuantity: 8,
+    urgency: "LOW",
     ...overrides,
   };
 }
@@ -81,6 +104,9 @@ function repository(
         dateTo: input.dateTo,
         storeScope: input.storeScope,
       });
+    },
+    async listReorderSuggestions() {
+      return [reorderSuggestion()];
     },
     ...overrides,
   };
@@ -226,5 +252,66 @@ describe("reports service", () => {
       allStores: false,
       storeIds: ["store_2"],
     });
+  });
+
+  it("lets owner list reorder suggestions across all stores by default", async () => {
+    const calls: ReorderSuggestionQuery[] = [];
+
+    await listReorderSuggestions(
+      authContext({ role: "OWNER", assignedStoreIds: [] }),
+      {},
+      repository({
+        async listReorderSuggestions(input) {
+          calls.push(input);
+          return [];
+        },
+      }),
+    );
+
+    expect(calls).toEqual([
+      {
+        organizationId: "org_1",
+        storeScope: {
+          allStores: true,
+          storeIds: [],
+        },
+      },
+    ]);
+  });
+
+  it("scopes manager reorder suggestions to assigned stores", async () => {
+    const calls: ReorderSuggestionQuery[] = [];
+
+    await listReorderSuggestions(
+      authContext({ role: "MANAGER", assignedStoreIds: ["store_1"] }),
+      {},
+      repository({
+        async listReorderSuggestions(input) {
+          calls.push(input);
+          return [];
+        },
+      }),
+    );
+
+    expect(calls[0].storeScope).toEqual({
+      allStores: false,
+      storeIds: ["store_1"],
+    });
+  });
+
+  it("denies staff reorder suggestion access", async () => {
+    await expect(
+      listReorderSuggestions(
+        authContext({ role: "STAFF", assignedStoreIds: ["store_1"] }),
+        {},
+        repository(),
+      ),
+    ).rejects.toThrow("Role cannot view reports");
+  });
+
+  it("rejects empty explicit reorder store filters", async () => {
+    await expect(
+      listReorderSuggestions(authContext(), { storeIds: [] }, repository()),
+    ).rejects.toThrow("Report store filter must not be empty");
   });
 });

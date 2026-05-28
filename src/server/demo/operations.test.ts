@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AuthContextRepository, MembershipRecord } from "../authz/context-loader";
-import type { LowStockReportQuery, SalesReportQuery } from "../reports/service";
+import type {
+  LowStockReportQuery,
+  ReorderSuggestionQuery,
+  SalesReportQuery,
+} from "../reports/service";
 import type { ReportsRepository } from "../reports/service";
 import { loadDemoOperationsDashboard } from "./operations";
 
@@ -29,9 +33,11 @@ function authRepository(record: MembershipRecord): AuthContextRepository {
 function reportsRepository(
   calls: {
     lowStock: LowStockReportQuery[];
+    reorder: ReorderSuggestionQuery[];
     sales: SalesReportQuery[];
   } = {
     lowStock: [],
+    reorder: [],
     sales: [],
   },
 ): ReportsRepository {
@@ -49,6 +55,25 @@ function reportsRepository(
           barcode: "9555000000029",
           quantityOnHand: 3,
           lowStockThreshold: 5,
+        },
+      ];
+    },
+    async listReorderSuggestions(input) {
+      calls.reorder.push(input);
+      return [
+        {
+          organizationId: input.organizationId,
+          storeId: "store_orchard",
+          storeName: "Orchard Central",
+          storeCode: "ORCHARD",
+          skuId: "sku_tote",
+          skuName: "Canvas Tote Bag",
+          barcode: "9555000000029",
+          quantityOnHand: 3,
+          lowStockThreshold: 5,
+          targetQuantity: 10,
+          suggestedReorderQuantity: 7,
+          urgency: "LOW",
         },
       ];
     },
@@ -82,6 +107,7 @@ describe("loadDemoOperationsDashboard", () => {
   it("loads owner all-store low-stock and sales reports", async () => {
     const calls = {
       lowStock: [] as LowStockReportQuery[],
+      reorder: [] as ReorderSuggestionQuery[],
       sales: [] as SalesReportQuery[],
     };
 
@@ -118,6 +144,15 @@ describe("loadDemoOperationsDashboard", () => {
         },
       },
     ]);
+    expect(calls.reorder).toEqual([
+      {
+        organizationId: "org_merchflow_demo",
+        storeScope: {
+          allStores: true,
+          storeIds: [],
+        },
+      },
+    ]);
     expect(result).toEqual({
       ok: true,
       data: {
@@ -135,6 +170,22 @@ describe("loadDemoOperationsDashboard", () => {
             barcode: "9555000000029",
             quantityOnHand: 3,
             lowStockThreshold: 5,
+          },
+        ],
+        reorderSuggestions: [
+          {
+            organizationId: "org_merchflow_demo",
+            storeId: "store_orchard",
+            storeName: "Orchard Central",
+            storeCode: "ORCHARD",
+            skuId: "sku_tote",
+            skuName: "Canvas Tote Bag",
+            barcode: "9555000000029",
+            quantityOnHand: 3,
+            lowStockThreshold: 5,
+            targetQuantity: 10,
+            suggestedReorderQuantity: 7,
+            urgency: "LOW",
           },
         ],
         salesReport: {
@@ -167,6 +218,7 @@ describe("loadDemoOperationsDashboard", () => {
   it("loads manager reports scoped to assigned stores by default", async () => {
     const calls = {
       lowStock: [] as LowStockReportQuery[],
+      reorder: [] as ReorderSuggestionQuery[],
       sales: [] as SalesReportQuery[],
     };
 
@@ -198,11 +250,16 @@ describe("loadDemoOperationsDashboard", () => {
       allStores: false,
       storeIds: ["store_orchard"],
     });
+    expect(calls.reorder[0].storeScope).toEqual({
+      allStores: false,
+      storeIds: ["store_orchard"],
+    });
   });
 
   it("passes an explicit store filter to report services", async () => {
     const calls = {
       lowStock: [] as LowStockReportQuery[],
+      reorder: [] as ReorderSuggestionQuery[],
       sales: [] as SalesReportQuery[],
     };
 
@@ -230,6 +287,10 @@ describe("loadDemoOperationsDashboard", () => {
         allStores: false,
         storeIds: ["store_klcc"],
       },
+    });
+    expect(calls.reorder[0].storeScope).toEqual({
+      allStores: false,
+      storeIds: ["store_klcc"],
     });
   });
 

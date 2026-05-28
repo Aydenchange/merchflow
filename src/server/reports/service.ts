@@ -8,6 +8,9 @@ import type {
   LowStockReportInput,
   LowStockReportQuery,
   ReportStoreScope,
+  ReorderSuggestion,
+  ReorderSuggestionInput,
+  ReorderSuggestionQuery,
   SalesReportInput,
   SalesReportQuery,
 } from "./types";
@@ -16,6 +19,9 @@ const DEFAULT_TOP_SKU_LIMIT = 5;
 
 export type ReportsRepository = {
   listLowStockItems(input: LowStockReportQuery): Promise<LowStockItem[]>;
+  listReorderSuggestions(
+    input: ReorderSuggestionQuery,
+  ): Promise<ReorderSuggestion[]>;
   getBasicSalesReport(input: SalesReportQuery): Promise<BasicSalesReport>;
 };
 
@@ -23,6 +29,8 @@ export type {
   BasicSalesReport,
   LowStockItem,
   LowStockReportQuery,
+  ReorderSuggestion,
+  ReorderSuggestionQuery,
   SalesReportQuery,
 } from "./types";
 
@@ -34,6 +42,19 @@ export async function listLowStockItems(
   const storeScope = resolveReportStoreScope(context, input.storeIds);
 
   return repository.listLowStockItems({
+    organizationId: context.organizationId,
+    storeScope,
+  });
+}
+
+export async function listReorderSuggestions(
+  context: AuthContext,
+  input: ReorderSuggestionInput,
+  repository: ReportsRepository,
+): Promise<ReorderSuggestion[]> {
+  const storeScope = resolveReportStoreScope(context, input.storeIds);
+
+  return repository.listReorderSuggestions({
     organizationId: context.organizationId,
     storeScope,
   });

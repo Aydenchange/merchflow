@@ -5,8 +5,10 @@ import {
 import {
   getBasicSalesReport,
   listLowStockItems,
+  listReorderSuggestions,
   type BasicSalesReport,
   type LowStockItem,
+  type ReorderSuggestion,
   type ReportsRepository,
 } from "../reports/service";
 import { resolveDemoUserId, type DemoActionResult, type DemoRole } from "./workbench";
@@ -32,6 +34,7 @@ export type DemoOperationsDashboard = {
   dateFrom: string;
   dateTo: string;
   lowStockItems: LowStockItem[];
+  reorderSuggestions: ReorderSuggestion[];
   salesReport: SerializableBasicSalesReport;
 };
 
@@ -52,8 +55,13 @@ export async function loadDemoOperationsDashboard(
     const reportInput = {
       storeIds: input.storeIds,
     };
-    const [lowStockItems, salesReport] = await Promise.all([
+    const [lowStockItems, reorderSuggestions, salesReport] = await Promise.all([
       listLowStockItems(context, reportInput, dependencies.reportsRepository),
+      listReorderSuggestions(
+        context,
+        reportInput,
+        dependencies.reportsRepository,
+      ),
       getBasicSalesReport(
         context,
         {
@@ -73,6 +81,7 @@ export async function loadDemoOperationsDashboard(
         dateFrom: dateFrom.toISOString(),
         dateTo: dateTo.toISOString(),
         lowStockItems,
+        reorderSuggestions,
         salesReport: {
           ...salesReport,
           dateFrom: salesReport.dateFrom.toISOString(),

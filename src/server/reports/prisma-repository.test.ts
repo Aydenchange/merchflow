@@ -139,6 +139,162 @@ describe("prisma reports repository", () => {
     );
   });
 
+  it("maps low-stock inventory rows into reorder suggestions", async () => {
+    const inventoryBalanceFindMany = vi.fn().mockResolvedValue([
+      {
+        organizationId: "org_1",
+        storeId: "store_1",
+        quantityOnHand: 0,
+        lowStockThreshold: 5,
+        store: {
+          name: "Orchard Central",
+          code: "SG-ORC",
+        },
+        sku: {
+          id: "sku_1",
+          name: "Classic T-Shirt / Black / M",
+          barcode: "9555000000012",
+        },
+      },
+      {
+        organizationId: "org_1",
+        storeId: "store_1",
+        quantityOnHand: 1,
+        lowStockThreshold: 5,
+        store: {
+          name: "Orchard Central",
+          code: "SG-ORC",
+        },
+        sku: {
+          id: "sku_2",
+          name: "Canvas Tote Bag",
+          barcode: "9555000000029",
+        },
+      },
+      {
+        organizationId: "org_1",
+        storeId: "store_2",
+        quantityOnHand: 5,
+        lowStockThreshold: 5,
+        store: {
+          name: "KLCC Pop-up",
+          code: "MY-KLC",
+        },
+        sku: {
+          id: "sku_3",
+          name: "Ceramic Mug",
+          barcode: "9555000000036",
+        },
+      },
+      {
+        organizationId: "org_1",
+        storeId: "store_2",
+        quantityOnHand: 8,
+        lowStockThreshold: 5,
+        store: {
+          name: "KLCC Pop-up",
+          code: "MY-KLC",
+        },
+        sku: {
+          id: "sku_4",
+          name: "Notebook",
+          barcode: "9555000000043",
+        },
+      },
+    ]);
+
+    const result = await createPrismaReportsRepository(
+      createDb({ inventoryBalanceFindMany }),
+    ).listReorderSuggestions({
+      organizationId: "org_1",
+      storeScope: {
+        allStores: false,
+        storeIds: ["store_1", "store_2"],
+      },
+    });
+
+    expect(inventoryBalanceFindMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: "org_1",
+        storeId: {
+          in: ["store_1", "store_2"],
+        },
+        lowStockThreshold: {
+          gt: 0,
+        },
+        store: {
+          status: "ACTIVE",
+        },
+        sku: {
+          status: "ACTIVE",
+        },
+      },
+      select: {
+        organizationId: true,
+        storeId: true,
+        quantityOnHand: true,
+        lowStockThreshold: true,
+        store: {
+          select: {
+            name: true,
+            code: true,
+          },
+        },
+        sku: {
+          select: {
+            id: true,
+            name: true,
+            barcode: true,
+          },
+        },
+      },
+    });
+    expect(result).toEqual([
+      {
+        organizationId: "org_1",
+        storeId: "store_1",
+        storeName: "Orchard Central",
+        storeCode: "SG-ORC",
+        skuId: "sku_1",
+        skuName: "Classic T-Shirt / Black / M",
+        barcode: "9555000000012",
+        quantityOnHand: 0,
+        lowStockThreshold: 5,
+        targetQuantity: 10,
+        suggestedReorderQuantity: 10,
+        urgency: "OUT_OF_STOCK",
+      },
+      {
+        organizationId: "org_1",
+        storeId: "store_1",
+        storeName: "Orchard Central",
+        storeCode: "SG-ORC",
+        skuId: "sku_2",
+        skuName: "Canvas Tote Bag",
+        barcode: "9555000000029",
+        quantityOnHand: 1,
+        lowStockThreshold: 5,
+        targetQuantity: 10,
+        suggestedReorderQuantity: 9,
+        urgency: "CRITICAL",
+      },
+      {
+        organizationId: "org_1",
+        storeId: "store_2",
+        storeName: "KLCC Pop-up",
+        storeCode: "MY-KLC",
+        skuId: "sku_3",
+        skuName: "Ceramic Mug",
+        barcode: "9555000000036",
+        quantityOnHand: 5,
+        lowStockThreshold: 5,
+        targetQuantity: 10,
+        suggestedReorderQuantity: 5,
+        urgency: "LOW",
+      },
+    ]);
+  });
+
   it("aggregates completed and refunded sales separately and preserves top sku order", async () => {
     const dateFrom = new Date("2026-05-01T00:00:00.000Z");
     const dateTo = new Date("2026-05-31T23:59:59.000Z");

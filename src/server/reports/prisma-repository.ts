@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import type { ReportsRepository } from "./service";
 import type {
   ReportStoreScope,
+  ReorderUrgency,
   SalesReportQuery,
   TopSkuSales,
 } from "./types";
@@ -18,40 +19,7 @@ export function createPrismaReportsRepository(
 ): ReportsRepository {
   return {
     async listLowStockItems(input) {
-      const candidates = await db.inventoryBalance.findMany({
-        where: {
-          organizationId: input.organizationId,
-          ...storeScopeWhere(input.storeScope),
-          lowStockThreshold: {
-            gt: 0,
-          },
-          store: {
-            status: "ACTIVE",
-          },
-          sku: {
-            status: "ACTIVE",
-          },
-        },
-        select: {
-          organizationId: true,
-          storeId: true,
-          quantityOnHand: true,
-          lowStockThreshold: true,
-          store: {
-            select: {
-              name: true,
-              code: true,
-            },
-          },
-          sku: {
-            select: {
-              id: true,
-              name: true,
-              barcode: true,
-            },
-          },
-        },
-      });
+      const candidates = await findLowStockCandidates(db, input);
 
       return candidates
         .filter((item) => item.quantityOnHand <= item.lowStockThreshold)
@@ -66,6 +34,34 @@ export function createPrismaReportsRepository(
           quantityOnHand: item.quantityOnHand,
           lowStockThreshold: item.lowStockThreshold,
         }));
+    },
+
+    async listReorderSuggestions(input) {
+      const candidates = await findLowStockCandidates(db, input);
+
+      return candidates
+        .filter((item) => item.quantityOnHand <= item.lowStockThreshold)
+        .map((item) => {
+          const targetQuantity = item.lowStockThreshold * 2;
+
+          return {
+            organizationId: item.organizationId,
+            storeId: item.storeId,
+            storeName: item.store.name,
+            storeCode: item.store.code,
+            skuId: item.sku.id,
+            skuName: item.sku.name,
+            barcode: item.sku.barcode,
+            quantityOnHand: item.quantityOnHand,
+            lowStockThreshold: item.lowStockThreshold,
+            targetQuantity,
+            suggestedReorderQuantity: targetQuantity - item.quantityOnHand,
+            urgency: resolveReorderUrgency(
+              item.quantityOnHand,
+              item.lowStockThreshold,
+            ),
+          };
+        });
     },
 
     async getBasicSalesReport(input) {
@@ -147,6 +143,64 @@ export function createPrismaReportsRepository(
       };
     },
   };
+}
+
+async function findLowStockCandidates(
+  db: PrismaWithReportsAccess,
+  input: {
+    organizationId: string;
+    storeScope: ReportStoreScope;
+  },
+) {
+  return db.inventoryBalance.findMany({
+    where: {
+      organizationId: input.organizationId,
+      ...storeScopeWhere(input.storeScope),
+      lowStockThreshold: {
+        gt: 0,
+      },
+      store: {
+        status: "ACTIVE",
+      },
+      sku: {
+        status: "ACTIVE",
+      },
+    },
+    select: {
+      organizationId: true,
+      storeId: true,
+      quantityOnHand: true,
+      lowStockThreshold: true,
+      store: {
+        select: {
+          name: true,
+          code: true,
+        },
+      },
+      sku: {
+        select: {
+          id: true,
+          name: true,
+          barcode: true,
+        },
+      },
+    },
+  });
+}
+
+function resolveReorderUrgency(
+  quantityOnHand: number,
+  lowStockThreshold: number,
+): ReorderUrgency {
+  if (quantityOnHand === 0) {
+    return "OUT_OF_STOCK";
+  }
+
+  if (quantityOnHand <= Math.floor(lowStockThreshold / 2)) {
+    return "CRITICAL";
+  }
+
+  return "LOW";
 }
 
 function storeScopeWhere(
