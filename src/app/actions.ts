@@ -1,16 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getDb } from "../lib/db";
+import { getDb } from "@/lib/db";
 import {
   createPosActionHandlers,
   type LookupSkuActionInput,
   type PosOrderActionInput,
   type SimulatePaymentSuccessActionInput,
-} from "./pos-action-handlers";
+} from "@/features/pos/actions/handlers";
 import {
   createOperationsActionHandlers,
-} from "./operations-action-handlers";
+} from "@/features/operations/actions/handlers";
 import {
   createControlActionHandlers,
   type AdjustDemoStockInput,
@@ -19,13 +19,13 @@ import {
   type LoadDemoControlCenterInput,
   type RefundDemoOrderInput,
   type RestockDemoReturnInput,
-} from "./control-action-handlers";
+} from "@/features/control-center/actions/handlers";
 import {
   createAuditActionHandlers,
   type LoadDemoAuditTrailInput,
-} from "./audit-action-handlers";
-import type { DemoRole } from "../server/demo/workbench";
-import type { LoadDemoOperationsDashboardInput } from "../server/demo/operations";
+} from "@/features/audit/actions/handlers";
+import type { DemoRole } from "@/server/demo/workbench";
+import type { LoadDemoOperationsDashboardInput } from "@/server/demo/operations";
 
 const posHandlers = createPosActionHandlers({
   getDb,

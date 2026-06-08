@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { getAccessibleStoreScope } from "../authz/policy";
+import { getAccessibleStoreScope } from "../modules/authz/policy";
 import type { DemoRepository } from "./workbench";
 
 type PrismaWithDemoAccess = Pick<

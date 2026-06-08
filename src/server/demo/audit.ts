@@ -1,13 +1,13 @@
 import {
   loadAuthContextForUser,
   type AuthContextRepository,
-} from "../authz/context-loader";
+} from "../modules/authz/context-loader";
 import {
   loadAuditTrail,
   type AuditRepository,
   type AuditStoreScope,
-} from "../audit/service";
-import type { AuditEvent, StockMovement } from "../audit/types";
+} from "../modules/audit/service";
+import type { AuditEvent, StockMovement } from "../modules/audit/types";
 import {
   resolveDemoUserId,
   type DemoActionResult,

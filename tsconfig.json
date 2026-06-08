@@ -9,6 +9,7 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    "baseUrl": ".",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
@@ -19,7 +20,12 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@/domain/*": ["./src/domain/*"],
+      "@/features/*": ["./src/features/*"],
+      "@/server/demo/*": ["./src/server/demo/*"],
+      "@/server/modules/*": ["./src/server/modules/*"],
+      "@/shared/*": ["./src/features/shared/*"]
     }
   },
   "include": [

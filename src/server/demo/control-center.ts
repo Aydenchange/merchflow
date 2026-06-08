@@ -1,29 +1,29 @@
 import {
   loadAuthContextForUser,
   type AuthContextRepository,
-} from "../authz/context-loader";
-import { getAccessibleStoreScope } from "../authz/policy";
+} from "../modules/authz/context-loader";
+import { getAccessibleStoreScope } from "../modules/authz/policy";
 import {
   adjustStock,
   type InventoryRepository,
   type StockAdjustmentResult,
-} from "../inventory/service";
+} from "../modules/inventory/service";
 import {
   cancelPendingOrder,
   fulfillPaidOrder,
   type OrderLifecycleRepository,
   type OrderLifecycleResult,
-} from "../orders/lifecycle-service";
+} from "../modules/orders/lifecycle-service";
 import {
   recordFullRefund,
   type RecordedRefundResult,
   type RefundRepository,
-} from "../refunds/service";
+} from "../modules/refunds/service";
 import {
   recordReturnRestock,
   type ReturnRestockRepository,
   type ReturnRestockResult,
-} from "../returns/service";
+} from "../modules/returns/service";
 import {
   resolveDemoUserId,
   type DemoActionResult,

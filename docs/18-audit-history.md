@@ -24,10 +24,10 @@ Each row includes store, actor, action/reason, entity, timestamp, and metadata o
 
 The implementation uses a dedicated audit read service:
 
-- `src/server/audit/service.ts` resolves role and store scope.
-- `src/server/audit/prisma-repository.ts` queries `AuditLog` and `StockLedger`.
+- `src/server/modules/audit/service.ts` resolves role and store scope.
+- `src/server/modules/audit/prisma-repository.ts` queries `AuditLog` and `StockLedger`.
 - `src/server/demo/audit.ts` serializes the read model for the UI.
-- `src/app/audit-trail.tsx` renders the top-level Audit tab.
+- `src/features/audit/audit-trail.tsx` renders the top-level Audit tab.
 
 Staff users are denied audit access. Owners can see all stores by default. Managers are scoped to assigned stores, with explicit store filters validated server-side.
 

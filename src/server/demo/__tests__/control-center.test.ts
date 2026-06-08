@@ -1,0 +1,587 @@
+import { describe, expect, it } from "vitest";
+import type {
+  AuthContextRepository,
+  MembershipRecord,
+} from "@/server/modules/authz/context-loader";
+import type {
+  InventoryRepository,
+  StockAdjustmentResult,
+} from "@/server/modules/inventory/service";
+import type {
+  OrderLifecycleRecord,
+  OrderLifecycleRepository,
+  OrderLifecycleResult,
+  OrderLifecycleTransitionInput,
+} from "@/server/modules/orders/lifecycle-service";
+import type {
+  RefundableOrderRecord,
+  RefundRepository,
+} from "@/server/modules/refunds/service";
+import type {
+  ApplyReturnRestockInput,
+  ReturnRestockOrderRecord,
+  ReturnRestockRepository,
+  ReturnRestockResult,
+} from "@/server/modules/returns/service";
+import {
+  adjustDemoStock,
+  cancelDemoOrder,
+  fulfillDemoOrder,
+  loadDemoControlCenter,
+  refundDemoOrder,
+  restockDemoReturn,
+  type ControlCenterInventoryOption,
+  type ControlCenterOrder,
+  type ControlCenterQuery,
+  type ControlCenterReturnRestockCandidate,
+  type DemoControlCenterRepository,
+} from "../control-center";
+
+function membershipRecord(
+  overrides: Partial<MembershipRecord> = {},
+): MembershipRecord {
+  return {
+    userId: "user_owner",
+    membershipId: "membership_owner",
+    organizationId: "org_merchflow_demo",
+    role: "OWNER",
+    status: "ACTIVE",
+    storeAssignments: [],
+    ...overrides,
+  };
+}
+
+function authRepository(record: MembershipRecord): AuthContextRepository {
+  return {
+    async findMembershipByUserId() {
+      return record;
+    },
+  };
+}
+
+function controlOrder(overrides: Partial<ControlCenterOrder> = {}) {
+  return {
+    id: "order_1",
+    organizationId: "org_merchflow_demo",
+    storeId: "store_orchard",
+    storeName: "Orchard Central",
+    storeCode: "ORCHARD",
+    status: "PAID",
+    totalAmount: 1299,
+    currency: "SGD",
+    createdAt: new Date("2026-05-28T08:00:00.000Z"),
+    paidAt: new Date("2026-05-28T08:01:00.000Z"),
+    fulfilledAt: null,
+    cancelledAt: null,
+    refundedAt: null,
+    payment: {
+      id: "payment_1",
+      status: "SUCCEEDED",
+      amount: 1299,
+      currency: "SGD",
+    },
+    ...overrides,
+  } satisfies ControlCenterOrder;
+}
+
+function inventoryOption(
+  overrides: Partial<ControlCenterInventoryOption> = {},
+): ControlCenterInventoryOption {
+  return {
+    organizationId: "org_merchflow_demo",
+    storeId: "store_orchard",
+    storeName: "Orchard Central",
+    storeCode: "ORCHARD",
+    skuId: "sku_tshirt_black_m",
+    skuName: "Classic T-Shirt / Black / M",
+    barcode: "9555000000012",
+    quantityOnHand: 24,
+    lowStockThreshold: 5,
+    ...overrides,
+  };
+}
+
+function returnRestockCandidate(
+  overrides: Partial<ControlCenterReturnRestockCandidate> = {},
+): ControlCenterReturnRestockCandidate {
+  return {
+    orderId: "order_refunded",
+    organizationId: "org_merchflow_demo",
+    storeId: "store_orchard",
+    storeName: "Orchard Central",
+    storeCode: "ORCHARD",
+    refundedAt: new Date("2026-05-28T10:00:00.000Z"),
+    items: [
+      {
+        orderItemId: "item_1",
+        skuId: "sku_tshirt_black_m",
+        skuName: "Classic T-Shirt / Black / M",
+        barcode: "9555000000012",
+        orderedQuantity: 2,
+        quantityRestocked: 1,
+        restockableQuantity: 1,
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function controlRepository(calls: {
+  recentOrders: ControlCenterQuery[];
+  inventoryOptions: ControlCenterQuery[];
+  returnRestockCandidates: ControlCenterQuery[];
+}): DemoControlCenterRepository {
+  return {
+    async listRecentOrders(input) {
+      calls.recentOrders.push(input);
+      return [controlOrder()];
+    },
+    async listInventoryOptions(input) {
+      calls.inventoryOptions.push(input);
+      return [inventoryOption()];
+    },
+    async listReturnRestockCandidates(input) {
+      calls.returnRestockCandidates.push(input);
+      return [returnRestockCandidate()];
+    },
+  };
+}
+
+function lifecycleRepository(
+  calls: OrderLifecycleTransitionInput[],
+  order: OrderLifecycleRecord = {
+    id: "order_1",
+    organizationId: "org_merchflow_demo",
+    storeId: "store_orchard",
+    status: "PAID",
+  },
+): OrderLifecycleRepository {
+  return {
+    async findOrderForLifecycle() {
+      return order;
+    },
+    async cancelPendingOrder(input) {
+      calls.push(input);
+      return {
+        orderId: input.orderId,
+        organizationId: input.organizationId,
+        storeId: input.storeId,
+        status: "CANCELLED",
+        cancelledAt: input.transitionedAt,
+        fulfilledAt: null,
+      } satisfies OrderLifecycleResult;
+    },
+    async fulfillPaidOrder(input) {
+      calls.push(input);
+      return {
+        orderId: input.orderId,
+        organizationId: input.organizationId,
+        storeId: input.storeId,
+        status: "FULFILLED",
+        cancelledAt: null,
+        fulfilledAt: input.transitionedAt,
+      } satisfies OrderLifecycleResult;
+    },
+  };
+}
+
+function refundRepository(
+  order: RefundableOrderRecord = {
+    id: "order_1",
+    organizationId: "org_merchflow_demo",
+    storeId: "store_orchard",
+    status: "PAID",
+    payment: {
+      id: "payment_1",
+      status: "SUCCEEDED",
+      amount: 1299,
+      currency: "SGD",
+    },
+  },
+): RefundRepository {
+  return {
+    async findOrderForRefund() {
+      return order;
+    },
+    async recordFullRefund(input) {
+      return {
+        orderId: input.orderId,
+        paymentId: input.paymentId,
+        organizationId: input.organizationId,
+        storeId: input.storeId,
+        orderStatus: "REFUNDED",
+        paymentStatus: "REFUNDED",
+        refundAmount: input.refundAmount,
+        currency: input.currency,
+        refundedAt: input.refundedAt,
+      };
+    },
+  };
+}
+
+function inventoryRepository(
+  calls: Parameters<InventoryRepository["applyStockAdjustment"]>[0][],
+): InventoryRepository {
+  return {
+    async applyStockAdjustment(input) {
+      calls.push(input);
+      return {
+        organizationId: input.organizationId,
+        storeId: input.storeId,
+        skuId: input.skuId,
+        quantityDelta: input.quantityDelta,
+        quantityOnHand: 31,
+        lowStockThreshold: 5,
+        reason: input.reason,
+        ledgerId: "ledger_1",
+      } satisfies StockAdjustmentResult;
+    },
+  };
+}
+
+function returnRestockRepository(
+  calls: ApplyReturnRestockInput[],
+): ReturnRestockRepository {
+  return {
+    async findOrderForReturnRestock() {
+      return {
+        id: "order_refunded",
+        organizationId: "org_merchflow_demo",
+        storeId: "store_orchard",
+        status: "REFUNDED",
+        items: [
+          {
+            orderItemId: "item_1",
+            skuId: "sku_tshirt_black_m",
+            skuName: "Classic T-Shirt / Black / M",
+            barcode: "9555000000012",
+            orderedQuantity: 2,
+          },
+        ],
+        restockedQuantities: [
+          {
+            skuId: "sku_tshirt_black_m",
+            quantityRestocked: 1,
+          },
+        ],
+      } satisfies ReturnRestockOrderRecord;
+    },
+    async applyReturnRestock(input) {
+      calls.push(input);
+      return {
+        organizationId: input.organizationId,
+        orderId: input.orderId,
+        storeId: input.storeId,
+        restockedAt: input.restockedAt,
+        items: input.items.map((item) => ({
+          skuId: item.skuId,
+          quantity: item.quantity,
+          quantityOnHand: 16,
+          ledgerId: "ledger_return_1",
+        })),
+      } satisfies ReturnRestockResult;
+    },
+  };
+}
+
+describe("demo control center", () => {
+  it("loads manager recent orders and inventory options with assigned-store scope", async () => {
+    const calls = {
+      recentOrders: [] as ControlCenterQuery[],
+      inventoryOptions: [] as ControlCenterQuery[],
+      returnRestockCandidates: [] as ControlCenterQuery[],
+    };
+
+    const result = await loadDemoControlCenter(
+      {
+        role: "manager",
+        orderLimit: 6,
+      },
+      {
+        authRepository: authRepository(
+          membershipRecord({
+            userId: "user_manager",
+            membershipId: "membership_manager",
+            role: "MANAGER",
+            storeAssignments: [{ storeId: "store_orchard" }],
+          }),
+        ),
+        controlRepository: controlRepository(calls),
+      },
+    );
+
+    expect(calls.recentOrders).toEqual([
+      {
+        organizationId: "org_merchflow_demo",
+        storeScope: {
+          allStores: false,
+          storeIds: ["store_orchard"],
+        },
+        limit: 6,
+      },
+    ]);
+    expect(calls.inventoryOptions[0]).toEqual({
+      organizationId: "org_merchflow_demo",
+      storeScope: {
+        allStores: false,
+        storeIds: ["store_orchard"],
+      },
+    });
+    expect(calls.returnRestockCandidates[0]).toEqual({
+      organizationId: "org_merchflow_demo",
+      storeScope: {
+        allStores: false,
+        storeIds: ["store_orchard"],
+      },
+    });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        role: "manager",
+        orders: [
+          {
+            ...controlOrder(),
+            createdAt: "2026-05-28T08:00:00.000Z",
+            paidAt: "2026-05-28T08:01:00.000Z",
+            fulfilledAt: null,
+            cancelledAt: null,
+            refundedAt: null,
+          },
+        ],
+        inventoryOptions: [inventoryOption()],
+        returnRestockCandidates: [
+          {
+            ...returnRestockCandidate(),
+            refundedAt: "2026-05-28T10:00:00.000Z",
+          },
+        ],
+      },
+    });
+  });
+
+  it("allows staff to fulfill a paid order in an assigned store", async () => {
+    const calls: OrderLifecycleTransitionInput[] = [];
+
+    const result = await fulfillDemoOrder(
+      {
+        role: "staff",
+        orderId: "order_1",
+      },
+      {
+        authRepository: authRepository(
+          membershipRecord({
+            userId: "user_staff",
+            membershipId: "membership_staff",
+            role: "STAFF",
+            storeAssignments: [{ storeId: "store_orchard" }],
+          }),
+        ),
+        lifecycleRepository: lifecycleRepository(calls),
+        now: () => new Date("2026-05-28T09:00:00.000Z"),
+      },
+    );
+
+    expect(calls).toEqual([
+      {
+        organizationId: "org_merchflow_demo",
+        orderId: "order_1",
+        storeId: "store_orchard",
+        actorMembershipId: "membership_staff",
+        transitionedAt: new Date("2026-05-28T09:00:00.000Z"),
+      },
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        orderId: "order_1",
+        organizationId: "org_merchflow_demo",
+        storeId: "store_orchard",
+        status: "FULFILLED",
+        cancelledAt: null,
+        fulfilledAt: "2026-05-28T09:00:00.000Z",
+      },
+    });
+  });
+
+  it("allows staff to cancel a pending payment order in an assigned store", async () => {
+    const calls: OrderLifecycleTransitionInput[] = [];
+
+    const result = await cancelDemoOrder(
+      {
+        role: "staff",
+        orderId: "order_pending",
+        reason: " Customer walked away ",
+      },
+      {
+        authRepository: authRepository(
+          membershipRecord({
+            userId: "user_staff",
+            membershipId: "membership_staff",
+            role: "STAFF",
+            storeAssignments: [{ storeId: "store_orchard" }],
+          }),
+        ),
+        lifecycleRepository: lifecycleRepository(calls, {
+          id: "order_pending",
+          organizationId: "org_merchflow_demo",
+          storeId: "store_orchard",
+          status: "PENDING_PAYMENT",
+        }),
+        now: () => new Date("2026-05-28T09:30:00.000Z"),
+      },
+    );
+
+    expect(calls).toEqual([
+      {
+        organizationId: "org_merchflow_demo",
+        orderId: "order_pending",
+        storeId: "store_orchard",
+        actorMembershipId: "membership_staff",
+        transitionedAt: new Date("2026-05-28T09:30:00.000Z"),
+        reason: "Customer walked away",
+      },
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        orderId: "order_pending",
+        organizationId: "org_merchflow_demo",
+        storeId: "store_orchard",
+        status: "CANCELLED",
+        cancelledAt: "2026-05-28T09:30:00.000Z",
+        fulfilledAt: null,
+      },
+    });
+  });
+
+  it("returns staff refund denial as a UI-safe error", async () => {
+    const result = await refundDemoOrder(
+      {
+        role: "staff",
+        orderId: "order_1",
+        reason: "Customer changed mind",
+      },
+      {
+        authRepository: authRepository(
+          membershipRecord({
+            userId: "user_staff",
+            membershipId: "membership_staff",
+            role: "STAFF",
+            storeAssignments: [{ storeId: "store_orchard" }],
+          }),
+        ),
+        refundRepository: refundRepository(),
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Role cannot record refund",
+    });
+  });
+
+  it("allows manager stock adjustment in an assigned store", async () => {
+    const calls: Parameters<InventoryRepository["applyStockAdjustment"]>[0][] =
+      [];
+
+    const result = await adjustDemoStock(
+      {
+        role: "manager",
+        storeId: "store_orchard",
+        skuId: "sku_tshirt_black_m",
+        quantityDelta: 7,
+        note: " Supplier delivery ",
+      },
+      {
+        authRepository: authRepository(
+          membershipRecord({
+            userId: "user_manager",
+            membershipId: "membership_manager",
+            role: "MANAGER",
+            storeAssignments: [{ storeId: "store_orchard" }],
+          }),
+        ),
+        inventoryRepository: inventoryRepository(calls),
+      },
+    );
+
+    expect(calls).toEqual([
+      {
+        organizationId: "org_merchflow_demo",
+        storeId: "store_orchard",
+        skuId: "sku_tshirt_black_m",
+        quantityDelta: 7,
+        reason: "ADJUSTMENT_IN",
+        actorMembershipId: "membership_manager",
+        note: "Supplier delivery",
+      },
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        organizationId: "org_merchflow_demo",
+        storeId: "store_orchard",
+        skuId: "sku_tshirt_black_m",
+        quantityDelta: 7,
+        quantityOnHand: 31,
+        lowStockThreshold: 5,
+        reason: "ADJUSTMENT_IN",
+        ledgerId: "ledger_1",
+      },
+    });
+  });
+
+  it("allows manager to restock a refunded return in an assigned store", async () => {
+    const calls: ApplyReturnRestockInput[] = [];
+
+    const result = await restockDemoReturn(
+      {
+        role: "manager",
+        orderId: "order_refunded",
+        items: [{ skuId: "sku_tshirt_black_m", quantity: 1 }],
+        note: " Item inspected ",
+      },
+      {
+        authRepository: authRepository(
+          membershipRecord({
+            userId: "user_manager",
+            membershipId: "membership_manager",
+            role: "MANAGER",
+            storeAssignments: [{ storeId: "store_orchard" }],
+          }),
+        ),
+        returnRestockRepository: returnRestockRepository(calls),
+        now: () => new Date("2026-05-28T11:00:00.000Z"),
+      },
+    );
+
+    expect(calls).toEqual([
+      {
+        organizationId: "org_merchflow_demo",
+        orderId: "order_refunded",
+        storeId: "store_orchard",
+        actorMembershipId: "membership_manager",
+        note: "Item inspected",
+        restockedAt: new Date("2026-05-28T11:00:00.000Z"),
+        items: [{ skuId: "sku_tshirt_black_m", quantity: 1 }],
+      },
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        organizationId: "org_merchflow_demo",
+        orderId: "order_refunded",
+        storeId: "store_orchard",
+        restockedAt: "2026-05-28T11:00:00.000Z",
+        items: [
+          {
+            skuId: "sku_tshirt_black_m",
+            quantity: 1,
+            quantityOnHand: 16,
+            ledgerId: "ledger_return_1",
+          },
+        ],
+      },
+    });
+  });
+});

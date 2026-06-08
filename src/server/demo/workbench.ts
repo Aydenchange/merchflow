@@ -1,21 +1,21 @@
 import {
   loadAuthContextForUser,
   type AuthContextRepository,
-} from "../authz/context-loader";
-import type { AuthContext, OrganizationRole } from "../authz/types";
+} from "../modules/authz/context-loader";
+import type { AuthContext, OrganizationRole } from "../modules/authz/types";
 import {
   lookupSkuForSaleByBarcode,
   type CatalogRepository,
-} from "../catalog/service";
+} from "../modules/catalog/service";
 import {
   createPendingPosOrder,
   type OrderRepository,
-} from "../orders/service";
+} from "../modules/orders/service";
 import {
   processPaymentSuccess,
   type PaymentRepository,
   type PaymentSuccessResult,
-} from "../payments/service";
+} from "../modules/payments/service";
 
 const DEMO_BARCODE = "9555000000012";
 const DEMO_PAYMENT_PROVIDER = "simulated_pos";

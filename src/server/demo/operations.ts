@@ -1,7 +1,7 @@
 import {
   loadAuthContextForUser,
   type AuthContextRepository,
-} from "../authz/context-loader";
+} from "../modules/authz/context-loader";
 import {
   getBasicSalesReport,
   listLowStockItems,
@@ -10,7 +10,7 @@ import {
   type LowStockItem,
   type ReorderSuggestion,
   type ReportsRepository,
-} from "../reports/service";
+} from "../modules/reports/service";
 import { resolveDemoUserId, type DemoActionResult, type DemoRole } from "./workbench";
 
 export type LoadDemoOperationsDashboardInput = {

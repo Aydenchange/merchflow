@@ -25,7 +25,7 @@ This phase adds a Return restock workflow in the Control Center:
 
 ## How
 
-The domain service is `src/server/returns/service.ts`.
+The domain service is `src/server/modules/returns/service.ts`.
 
 It enforces:
 
